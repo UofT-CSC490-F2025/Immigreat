@@ -1,6 +1,9 @@
 import requests
 from bs4 import BeautifulSoup
+import uuid
 import sys
+
+from scraping.china.types import PolicyDocument
 
 
 CN_BASE_URL = "https://www.nia.gov.cn"
@@ -25,11 +28,16 @@ def scrape_content_cn(url):
 
     soup = BeautifulSoup(response.text, "lxml")
 
+    date_element = soup.find("span", class_="zuo1_day")
+
+    if date_element:
+        date_text = date_element.get_text().strip()
+
 
     content_div = soup.find("div", class_="content")
     content = content_div.get_text("\n", strip=True) if content_div else ""
 
-    print("\nContent:\n", content)
+    policy_document = PolicyDocument(id=uuid.uuid4(), content=content, source=url, date_published=date_text)
 
 
 def find_content_urls(url):
@@ -45,7 +53,6 @@ def find_content_urls(url):
     links = list_section.find_all("a")
 
     urls = [link.get("href") for link in links if link.get("href")]
-
 
     return urls
 
