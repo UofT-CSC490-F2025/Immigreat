@@ -87,43 +87,70 @@ IRCC_PAGES = {
     "Program Delivery Instructions": "https://www.canada.ca/en/immigration-refugees-citizenship/corporate/publications-manuals/operational-bulletins-manuals.html"
 }
 
-def scrape_ircc_page(title, url, depth=1):
-    """
-    Scrape a page and optionally follow links to subpages.
-    depth=0 -> only this page
-    depth=1 -> this page + one level of subpages
-    """
+# only crawl pages we care about
+ALLOWED_PREFIXES = [
+    "/en/immigration-refugees-citizenship/services/application",
+    "/en/immigration-refugees-citizenship/corporate/publications-manuals/operational-bulletins-manuals"
+]
+
+MAX_PAGES = 500
+
+def scrape_ircc_page(title, url, visited=None, count=[0]):
+    if visited is None:
+        visited = set()
+    if url in visited or count[0] >= MAX_PAGES:
+        return
+    if not url.endswith(".html"):
+        return
+    visited.add(url)
+    count[0] += 1
+    print(f"[{count[0]}/{MAX_PAGES}] Scraping {title} -> {url}")
+
     print(f"Scraping {title} -> {url}")
     resp = requests.get(url)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
-    # Collect text from headings + paragraphs
-    content = []
-    for tag in soup.find_all(["h1", "h2", "h3", "p", "li"]):
-        text = tag.get_text(strip=True)
-        if text:
-            content.append(text)
+    # main content only
+    main = soup.find("main", id="wb-cont") or soup
 
-    full_text = "\n".join(content)
-    cur.execute("""
-        INSERT INTO documents (source, title, section, text, url)
-        VALUES (?, ?, ?, ?, ?)
-    """, ("IRCC", title, "N/A", full_text, url))
-    conn.commit()
+    # skip archived pages
+    if "ARCHIVED" in main.get_text():
+        print(f"⚠️ Skipping archived page: {url}")
+        return
 
-    # If depth > 0, crawl sub-links
+    # break content by h2 sections instead of one blob
+    for section in main.find_all("h2"):
+        heading = section.get_text(strip=True)
+        texts = []
+        for sib in section.find_next_siblings():
+            if sib.name == "h2":
+                break
+            if sib.name in ["p", "li"]:
+                txt = sib.get_text(strip=True)
+                if txt:
+                    texts.append(txt)
+
+        if texts:
+            cur.execute("""
+                INSERT INTO documents (source, title, section, text, url)
+                VALUES (?, ?, ?, ?, ?)
+            """, ("IRCC", title, heading, "\n".join(texts), url))
+            conn.commit()
+
+    # crawl sub-links only if they match allowed patterns
     if depth > 0:
         base = "https://www.canada.ca"
-        for a in soup.select("a[href]"):
+        for a in main.select("a[href]"):
             href = a["href"]
-            if href.startswith("/en/immigration-refugees-citizenship/"):
-                sub_url = base + href
+            if any(href.startswith(p) for p in ALLOWED_PREFIXES):
+                sub_url = base + href if href.startswith("/") else href
                 sub_title = a.get_text(strip=True) or "Untitled"
-                scrape_ircc_page(sub_title, sub_url, depth=0)  # don’t recurse infinitely
+                scrape_ircc_page(sub_title, sub_url, depth=depth-1, visited=visited)
 
+# run
 for title, url in IRCC_PAGES.items():
-    scrape_ircc_page(title, url, depth=1)
+    scrape_ircc_page(title, url, depth=2)
 
 # ---------- CHECK DATA ----------
 print("Database filled. Example rows:")
