@@ -106,6 +106,16 @@ def scrape_ircc_page(title, url, visited=None, count=[0]):
     count[0] += 1
     print(f"[{count[0]}/{MAX_PAGES}] Scraping {title} -> {url}")
 
+    try:
+        resp = requests.get(url)
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        print(f"⚠️ Skipping {url} (HTTP error {e})")
+        return
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️ Skipping {url} (Request failed: {e})")
+        return
+
     print(f"Scraping {title} -> {url}")
     resp = requests.get(url)
     resp.raise_for_status()
