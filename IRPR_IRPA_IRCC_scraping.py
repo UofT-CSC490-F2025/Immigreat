@@ -1,28 +1,9 @@
 import requests
-import sqlite3
 from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 import re
 import json
 import boto3
-
-# ---------- DATABASE SETUP ----------
-#TODO Remove intermediary .db file creation
-conn = sqlite3.connect("immigration.db")
-cur = conn.cursor()
-
-#TODO adjust to be agreed upon format for data entries
-cur.execute("""
-CREATE TABLE IF NOT EXISTS documents (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source TEXT,
-    title TEXT,
-    section TEXT,
-    text TEXT,
-    url TEXT
-)
-""")
-conn.commit()
 
 # ---------- PART 1: JUSTICE LAWS (IRPA + IRPR) ----------
 JUSTICE_XMLS = {
@@ -30,6 +11,8 @@ JUSTICE_XMLS = {
     "IRPR": "https://laws-lois.justice.gc.ca/eng/XML/SOR-2002-227.xml"
 }
 
+# store all documents in memory instead of database
+docs = []
 
 def parse_and_store(law_name, xml_url):
     print(f"Fetching {law_name}...")
@@ -80,13 +63,13 @@ def parse_and_store(law_name, xml_url):
 
         content = " ".join(texts)
 
-        cur.execute("""
-            INSERT INTO documents (source, title, section, text, url)
-            VALUES (?, ?, ?, ?, ?)
-        """, (law_name, heading, number, content, xml_url))
-
-    conn.commit()
-    print(f"Stored {law_name} successfully.")
+        docs.append({
+            "source": law_name,
+            "title": heading,
+            "section": number,
+            "text": content,
+            "url": xml_url
+        })
 
 # Run for each law
 for law_name, xml_url in JUSTICE_XMLS.items():
@@ -130,8 +113,6 @@ def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
         return
 
     print(f"Scraping {title} -> {url}")
-    resp = requests.get(url)
-    resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
     # main content only
@@ -155,11 +136,13 @@ def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
                     texts.append(txt)
 
         if texts:
-            cur.execute("""
-                INSERT INTO documents (source, title, section, text, url)
-                VALUES (?, ?, ?, ?, ?)
-            """, ("IRCC", title, heading, "\n".join(texts), url))
-            conn.commit()
+            docs.append({
+                "source": "IRCC",
+                "title": title,
+                "section": heading,
+                "text": "\n".join(texts),
+                "url": url
+            })
 
     # crawl sub-links only if they match allowed patterns
     if depth > 0:
@@ -177,28 +160,10 @@ for title, url in IRCC_PAGES.items():
 
 # ---------- CHECK DATA ----------
 print("Database filled. Example rows:")
-for row in cur.execute("SELECT source, title, section, substr(text, 1, 100) FROM documents LIMIT 5"):
-    print(row)
-
-conn.close()
+for row in docs[:5]:
+    print((row["source"], row["title"], row["section"], row["text"][:100]))
 
 # ---------- EXPORT TO JSON ----------
-conn = sqlite3.connect("immigration.db")
-cur = conn.cursor()
-rows = cur.execute("SELECT source, title, section, text, url FROM documents").fetchall()
-conn.close()
-
-docs = []
-for row in rows:
-    docs.append({
-        "source": row[0],
-        "title": row[1],
-        "section": row[2],
-        "text": row[3],
-        "url": row[4],
-    })
-
-# Save locally
 output_file = "immigration_data.json"
 with open(output_file, "w", encoding="utf-8") as f:
     json.dump(docs, f, ensure_ascii=False, indent=2)
