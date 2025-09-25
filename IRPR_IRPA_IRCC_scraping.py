@@ -104,6 +104,7 @@ ALLOWED_PREFIXES = [
     "/en/immigration-refugees-citizenship/corporate/publications-manuals/operational-bulletins-manuals"
 ]
 
+#TODO adjust max pages to scrape and depth of scraping appropriately
 MAX_PAGES = 200
 
 def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
