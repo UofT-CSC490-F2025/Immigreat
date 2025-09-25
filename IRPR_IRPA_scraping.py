@@ -3,7 +3,7 @@ import sqlite3
 import xml.etree.ElementTree as ET
 
 # -------------------------------
-# CONFIG
+# Scraping V1 for just IRPA and IRPR
 # -------------------------------
 laws = {
     "IRPA": "https://laws-lois.justice.gc.ca/eng/XML/I-2.5.xml",
@@ -58,4 +58,4 @@ def parse_and_store(law_name, xml_url):
 for law_name, xml_url in laws.items():
     parse_and_store(law_name, xml_url)
 
-print("✅ All laws saved into SQLite.")
+print("All laws saved into SQLite.")

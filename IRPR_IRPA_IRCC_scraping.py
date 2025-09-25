@@ -96,9 +96,9 @@ ALLOWED_PREFIXES = [
     "/en/immigration-refugees-citizenship/corporate/publications-manuals/operational-bulletins-manuals"
 ]
 
-MAX_PAGES = 500
+MAX_PAGES = 200
 
-def scrape_ircc_page(title, url, visited=None, count=[0]):
+def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
     if visited is None:
         visited = set()
     if url in visited or count[0] >= MAX_PAGES:
@@ -113,10 +113,10 @@ def scrape_ircc_page(title, url, visited=None, count=[0]):
         resp = requests.get(url)
         resp.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        print(f"⚠️ Skipping {url} (HTTP error {e})")
+        print(f"Skipping {url} (HTTP error {e})")
         return
     except requests.exceptions.RequestException as e:
-        print(f"⚠️ Skipping {url} (Request failed: {e})")
+        print(f"Skipping {url} (Request failed: {e})")
         return
 
     print(f"Scraping {title} -> {url}")
@@ -129,7 +129,7 @@ def scrape_ircc_page(title, url, visited=None, count=[0]):
 
     # skip archived pages
     if "ARCHIVED" in main.get_text():
-        print(f"⚠️ Skipping archived page: {url}")
+        print(f"Skipping archived page: {url}")
         return
 
     # break content by h2 sections instead of one blob
@@ -193,14 +193,14 @@ output_file = "immigration_data.json"
 with open(output_file, "w", encoding="utf-8") as f:
     json.dump(docs, f, ensure_ascii=False, indent=2)
 
-print(f"✅ Exported {len(docs)} records to {output_file}")
+print(f"Exported {len(docs)} records to {output_file}")
 
 # ---------- UPLOAD TO S3 ----------
 s3 = boto3.client("s3")
 
-bucket_name = "s3://raw-immigreation-documents"
-s3_key = "immigration/immigration_data.json"  # path inside S3 bucket
+bucket_name = "raw-immigreation-documents"
+s3_key = "immigration_data.json"  # path inside S3 bucket
 
 s3.upload_file(output_file, bucket_name, s3_key)
 
-print(f"✅ Uploaded {output_file} to s3://{bucket_name}/{s3_key}")
+print(f"Uploaded {output_file} to s3://{bucket_name}/{s3_key}")
