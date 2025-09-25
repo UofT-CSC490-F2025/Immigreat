@@ -4,6 +4,8 @@ import xml.etree.ElementTree as ET
 import re
 import json
 import boto3
+from datetime import date
+import uuid
 
 # ---------- PART 1: JUSTICE LAWS (IRPA + IRPR) ----------
 JUSTICE_XMLS = {
@@ -64,11 +66,13 @@ def parse_and_store(law_name, xml_url):
         content = " ".join(texts)
 
         docs.append({
-            "source": law_name,
+            "id": str(uuid.uuid4()),
             "title": heading,
             "section": number,
-            "text": content,
-            "url": xml_url
+            "content": content,
+            "source": law_name,
+            "date_published": None,  # XML does not provide publication date
+            "date_scraped": str(date.today())
         })
 
 # Run for each law
@@ -123,6 +127,14 @@ def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
         print(f"Skipping archived page: {url}")
         return
 
+    # attempt to extract publication date from meta tags
+    date_published = None
+    for meta_name in ["datePublished", "DC.date", "article:published_time"]:
+        tag = soup.find("meta", {"name": meta_name}) or soup.find("meta", {"property": meta_name})
+        if tag and tag.get("content"):
+            date_published = tag["content"]
+            break
+
     # break content by h2 sections instead of one blob
     for section in main.find_all("h2"):
         heading = section.get_text(strip=True)
@@ -137,11 +149,13 @@ def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
 
         if texts:
             docs.append({
-                "source": "IRCC",
+                "id": str(uuid.uuid4()),
                 "title": title,
                 "section": heading,
-                "text": "\n".join(texts),
-                "url": url
+                "content": "\n".join(texts),
+                "source": "IRCC",
+                "date_published": date_published,
+                "date_scraped": str(date.today())
             })
 
     # crawl sub-links only if they match allowed patterns
@@ -161,7 +175,7 @@ for title, url in IRCC_PAGES.items():
 # ---------- CHECK DATA ----------
 print("Database filled. Example rows:")
 for row in docs[:5]:
-    print((row["source"], row["title"], row["section"], row["text"][:100]))
+    print((row["id"], row["source"], row["title"], row["section"], row["content"][:100], row["date_published"], row["date_scraped"]))
 
 # ---------- EXPORT TO JSON ----------
 output_file = "immigration_data.json"
