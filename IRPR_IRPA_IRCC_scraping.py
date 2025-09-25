@@ -3,6 +3,8 @@ import sqlite3
 from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 import re
+import json
+import boto3
 
 # ---------- DATABASE SETUP ----------
 conn = sqlite3.connect("immigration.db")
@@ -81,7 +83,8 @@ def parse_and_store(law_name, xml_url):
 for law_name, xml_url in JUSTICE_XMLS.items():
     parse_and_store(law_name, xml_url)
 
-# ---------- PART 2: IRCC WEB PAGES ----------
+# ---------- PART 2: IRCC WEB PAGES ---------- 
+# TODO: filter out junk data from database
 IRCC_PAGES = {
     "Application Overview": "https://www.canada.ca/en/immigration-refugees-citizenship/services/application.html",
     "Program Delivery Instructions": "https://www.canada.ca/en/immigration-refugees-citizenship/corporate/publications-manuals/operational-bulletins-manuals.html"
@@ -168,3 +171,36 @@ for row in cur.execute("SELECT source, title, section, substr(text, 1, 100) FROM
     print(row)
 
 conn.close()
+
+# ---------- EXPORT TO JSON ----------
+conn = sqlite3.connect("immigration.db")
+cur = conn.cursor()
+rows = cur.execute("SELECT source, title, section, text, url FROM documents").fetchall()
+conn.close()
+
+docs = []
+for row in rows:
+    docs.append({
+        "source": row[0],
+        "title": row[1],
+        "section": row[2],
+        "text": row[3],
+        "url": row[4],
+    })
+
+# Save locally
+output_file = "immigration_data.json"
+with open(output_file, "w", encoding="utf-8") as f:
+    json.dump(docs, f, ensure_ascii=False, indent=2)
+
+print(f"✅ Exported {len(docs)} records to {output_file}")
+
+# ---------- UPLOAD TO S3 ----------
+s3 = boto3.client("s3")
+
+bucket_name = "s3://raw-immigreation-documents"
+s3_key = "immigration/immigration_data.json"  # path inside S3 bucket
+
+s3.upload_file(output_file, bucket_name, s3_key)
+
+print(f"✅ Uploaded {output_file} to s3://{bucket_name}/{s3_key}")
