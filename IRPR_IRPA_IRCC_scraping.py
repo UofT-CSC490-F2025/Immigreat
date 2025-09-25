@@ -7,6 +7,7 @@ import json
 import boto3
 
 # ---------- DATABASE SETUP ----------
+#TODO Remove intermediary .db file creation
 conn = sqlite3.connect("immigration.db")
 cur = conn.cursor()
 
@@ -54,6 +55,7 @@ def parse_and_store(law_name, xml_url):
         text_path = ".//Text"
 
     # Collect both Section and Subsection elements
+    # TODO make this actually work instead of these placeholder entries
     sections = root.findall(section_path, ns) + root.findall(subsection_path, ns)
     print(f"  Found {len(sections)} sections/subsections in {law_name}")
 
