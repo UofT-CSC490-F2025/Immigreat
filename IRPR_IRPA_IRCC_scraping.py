@@ -57,9 +57,15 @@ def parse_and_store(law_name, xml_url):
     sections = root.findall(section_path, ns) + root.findall(subsection_path, ns)
     print(f"  Found {len(sections)} sections/subsections in {law_name}")
 
-    for section in sections:
-        number = section.findtext(num_path, default="", namespaces=ns)
-        heading = section.findtext(heading_path, default="", namespaces=ns)
+    for i, section in enumerate(sections, start=1):
+        number = section.findtext(num_path, default="", namespaces=ns).strip()
+        heading = section.findtext(heading_path, default="", namespaces=ns).strip()
+
+        # Fallbacks if missing
+        if not number:
+            number = f"Sec-{i}"
+        if not heading:
+            heading = f"{law_name} Section {number}"
 
         # Prefer <Text> blocks over raw itertext
         texts = []
