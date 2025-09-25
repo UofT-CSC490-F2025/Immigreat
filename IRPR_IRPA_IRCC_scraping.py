@@ -11,6 +11,7 @@ import boto3
 conn = sqlite3.connect("immigration.db")
 cur = conn.cursor()
 
+#TODO adjust to be agreed upon format for data entries
 cur.execute("""
 CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
