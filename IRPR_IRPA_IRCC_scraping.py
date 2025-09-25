@@ -27,43 +27,40 @@ def parse_and_store(law_name, xml_url):
     m = re.match(r"\{(.*)\}", root.tag)
     if m:
         ns = {"ns": m.group(1)}
-        section_path = ".//ns:Section"
-        subsection_path = ".//ns:Subsection"
-        num_path = "ns:Num"
-        heading_path = "ns:Heading"
-        text_path = ".//ns:Text"
+        section_tag = "ns:Section"
+        subsection_tag = "ns:Subsection"
+        num_tag = "ns:Num"
+        heading_tag = "ns:Heading"
+        text_tag = ".//ns:Text"
     else:
         ns = {}
-        section_path = ".//Section"
-        subsection_path = ".//Subsection"
-        num_path = "Num"
-        heading_path = "Heading"
-        text_path = ".//Text"
+        section_tag = "Section"
+        subsection_tag = "Subsection"
+        num_tag = "Num"
+        heading_tag = "Heading"
+        text_tag = ".//Text"
 
-    # Collect both Section and Subsection elements
-    # TODO make this actually work instead of these placeholder entries
-    sections = root.findall(section_path, ns) + root.findall(subsection_path, ns)
-    print(f"  Found {len(sections)} sections/subsections in {law_name}")
-
-    for i, section in enumerate(sections, start=1):
-        number = section.findtext(num_path, default="", namespaces=ns).strip()
-        heading = section.findtext(heading_path, default="", namespaces=ns).strip()
-
-        # Fallbacks if missing
-        if not number:
-            number = f"Sec-{i}"
-        if not heading:
-            heading = f"{law_name} Section {number}"
-
-        # Prefer <Text> blocks over raw itertext
-        texts = []
-        for t in section.findall(text_path, ns):
-            if t.text:
-                texts.append(t.text.strip())
+    def extract_text(elem):
+        """Extract all meaningful text from element and its children."""
+        texts = [t.text.strip() for t in elem.findall(text_tag, ns) if t.text]
         if not texts:
-            texts = [t.strip() for t in section.itertext() if t.strip()]
+            texts = [t.strip() for t in elem.itertext() if t.strip()]
+        return " ".join(texts)
 
-        content = " ".join(texts)
+    def process_element(elem, parent_number="", parent_heading=""):
+        """Recursively process sections, subsections, paragraphs."""
+        number = elem.findtext(num_tag, default=None, namespaces=ns)
+        heading = elem.findtext(heading_tag, default=None, namespaces=ns)
+
+        if not number:
+            number = f"{parent_number}" if parent_number else "Sec-1"
+        else:
+            number = f"{parent_number}.{number}" if parent_number else number
+
+        if not heading:
+            heading = f"{parent_heading} Section {number}" if parent_heading else f"{law_name} Section {number}"
+
+        content = extract_text(elem)
 
         docs.append({
             "id": str(uuid.uuid4()),
@@ -74,6 +71,19 @@ def parse_and_store(law_name, xml_url):
             "date_published": None,  # XML does not provide publication date
             "date_scraped": str(date.today())
         })
+
+        # TODO Heres the logic that processes subsections. We are only using title and section. 
+        # If there are subsections, title = title + subsection, and section = subsection is stored. And so on.
+
+        # Recursively process subsections
+        for sub_elem in elem.findall(subsection_tag, ns):
+            process_element(sub_elem, parent_number=number, parent_heading=heading)
+
+    # Find all top-level sections and process recursively
+    sections = root.findall(section_tag, ns)
+    print(f"  Found {len(sections)} top-level sections in {law_name}")
+    for sec in sections:
+        process_element(sec)
 
 # Run for each law
 for law_name, xml_url in JUSTICE_XMLS.items():
