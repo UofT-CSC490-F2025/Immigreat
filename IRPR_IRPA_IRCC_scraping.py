@@ -69,10 +69,11 @@ def parse_and_store(law_name, xml_url):
             "content": content,
             "source": law_name,
             "date_published": None,  # XML does not provide publication date
-            "date_scraped": str(date.today())
+            "date_scraped": str(date.today()),
+            "granularity": "section"  # section-level entry for laws
         })
 
-        # TODO Heres the logic that processes subsections. We are only using title and section. 
+        # TODO Note: Here's the logic that processes subsections. We are only using title and section.
         # If there are subsections, title = title + subsection, and section = subsection is stored. And so on.
 
         # Recursively process subsections
@@ -103,7 +104,7 @@ ALLOWED_PREFIXES = [
 ]
 
 #TODO adjust max pages to scrape and depth of scraping appropriately
-MAX_PAGES = 200
+MAX_PAGES = 1000
 
 def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
     if visited is None:
@@ -145,7 +146,22 @@ def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
             date_published = tag["content"]
             break
 
-    # break content by h2 sections instead of one blob
+    # ---------- HYBRID: PAGE-LEVEL ENTRY ----------
+    # create a single document representing the entire page (useful for archival / full-page retrieval)
+    page_content = main.get_text("\n", strip=True)
+    if page_content:
+        docs.append({
+            "id": str(uuid.uuid4()),
+            "title": title,
+            "section": "",  # empty for full page
+            "content": page_content,
+            "source": "IRCC",
+            "date_published": date_published,
+            "date_scraped": str(date.today()),
+            "granularity": "page"  # page-level entry
+        })
+
+    # break content by h2 sections instead of one blob (section-level entries for RAG / fine-grained retrieval)
     for section in main.find_all("h2"):
         heading = section.get_text(strip=True)
         texts = []
@@ -165,7 +181,8 @@ def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
                 "content": "\n".join(texts),
                 "source": "IRCC",
                 "date_published": date_published,
-                "date_scraped": str(date.today())
+                "date_scraped": str(date.today()),
+                "granularity": "section"  # section-level entry
             })
 
     # crawl sub-links only if they match allowed patterns
@@ -185,7 +202,7 @@ for title, url in IRCC_PAGES.items():
 # ---------- CHECK DATA ----------
 print("Database filled. Example rows:")
 for row in docs[:5]:
-    print((row["id"], row["source"], row["title"], row["section"], row["content"][:100], row["date_published"], row["date_scraped"]))
+    print((row["id"], row["source"], row["title"], row["section"], row["content"][:100], row.get("granularity"), row["date_published"], row["date_scraped"]))
 
 # ---------- EXPORT TO JSON ----------
 output_file = "immigration_data.json"
