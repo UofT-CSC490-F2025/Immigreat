@@ -81,7 +81,7 @@ def parse_and_store(law_name, xml_url):
             process_element(sub_elem, parent_number=number, parent_heading=heading)
 
     # Find all top-level sections and process recursively
-    sections = root.findall(section_tag, ns)
+    sections = root.findall(".//" + section_tag, ns)
     print(f"  Found {len(sections)} top-level sections in {law_name}")
     for sec in sections:
         process_element(sec)
@@ -104,7 +104,7 @@ ALLOWED_PREFIXES = [
 ]
 
 #TODO adjust max pages to scrape and depth of scraping appropriately
-MAX_PAGES = 1000
+MAX_PAGES = 100
 
 def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
     if visited is None:
