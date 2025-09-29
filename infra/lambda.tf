@@ -1,4 +1,3 @@
-# Archive Lambda code
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_file = "${path.module}/../src/lambda/sample.py"
@@ -13,9 +12,19 @@ resource "aws_lambda_function" "sample" {
   
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+
+  environment {
+    variables = {
+      OPENSEARCH_ENDPOINT = aws_opensearch_domain.immigration_docs.endpoint
+      OPENSEARCH_SECRET   = aws_secretsmanager_secret.opensearch_creds.name
+      OPENSEARCH_INDEX    = "immigration-documents"
+      BEDROCK_EMBEDDING_MODEL  = var.bedrock_embedding_model_id
+      EMBEDDING_DIMENSIONS     = var.bedrock_embedding_dimensions
+      AWS_REGION              = var.aws_region
+    }
+  }
 }
 
-# Permission for S3 to invoke Lambda
 resource "aws_lambda_permission" "allow_s3" {
   statement_id  = "AllowS3Invoke"
   action        = "lambda:InvokeFunction"
@@ -24,7 +33,6 @@ resource "aws_lambda_permission" "allow_s3" {
   source_arn    = aws_s3_bucket.immigration_documents.arn
 }
 
-# CloudWatch Log Group
 resource "aws_cloudwatch_log_group" "lambda_logs" {
   name              = "/aws/lambda/${aws_lambda_function.sample.function_name}"
   retention_in_days = 7

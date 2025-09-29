@@ -37,7 +37,37 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "s3:GetObject"
         ]
         Resource = "${aws_s3_bucket.immigration_documents.arn}/*"
-      }
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "es:ESHttpPost",
+          "es:ESHttpGet",
+          "es:ESHttpPut",
+          "es:ESHttpDelete"
+        ]
+        Resource = "${aws_opensearch_domain.immigration_docs.arn}/*"
+      },
+      
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = aws_secretsmanager_secret.opensearch_creds.arn
+      },
+
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream"
+        ]
+        Resource = [
+          "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.titan-embed-text-v1",
+          "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.titan-embed-text-v2:0",
+        ]
+      },
     ]
   })
 }

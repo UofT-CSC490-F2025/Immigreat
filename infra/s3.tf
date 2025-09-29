@@ -1,5 +1,7 @@
 resource "aws_s3_bucket" "immigration_documents" {
   bucket = "${local.project_name}-documents-${random_string.suffix.result}"
+
+  force_destroy = true
   
   tags = merge(local.common_tags, {
     Name = "Immigration Documents Storage"
