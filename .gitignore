@@ -7,3 +7,4 @@ data/
 *.sqlite
 .DS_Store
 *.zip
+build/

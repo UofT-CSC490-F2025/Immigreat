@@ -16,30 +16,6 @@ variable "lambda_memory" {
   default     = 512
 }
 
-variable "opensearch_instance_type" {
-  description = "Instance type for OpenSearch domain"
-  type        = string
-  default     = "t3.small.search"
-}
-
-variable "opensearch_instance_count" {
-  description = "Number of instances in the OpenSearch cluster"
-  type        = number
-  default     = 1
-}
-
-variable "opensearch_volume_size" {
-  description = "Size of EBS volumes attached to OpenSearch nodes (in GB)"
-  type        = number
-  default     = 10
-}
-
-variable "opensearch_master_user" {
-  description = "Master username for OpenSearch"
-  type        = string
-  default     = "admin"
-}
-
 variable "bedrock_embedding_model_id" {
   description = "Bedrock model ID for generating embeddings"
   type        = string
@@ -50,4 +26,46 @@ variable "bedrock_embedding_dimensions" {
   description = "Dimension of embeddings from the model"
   type        = number
   default     = 1536  # Titan embeddings v1
+}
+
+variable "db_name" {
+  description = "Database name"
+  type        = string
+  default     = "immigrationDocsVectordb"
+}
+
+variable "db_username" {
+  description = "Database master username"
+  type        = string
+  default     = "postgres"
+}
+
+variable "db_password" {
+  description = "Database master password"
+  type        = string
+  sensitive   = true
+}
+
+variable "vpc_cidr" {
+  description = "VPC CIDR block"
+  type        = string
+  default     = "10.0.0.0/16"
+}
+
+variable "serverless_min_capacity" {
+  description = "Minimum Aurora Serverless v2 capacity units (ACUs). 1 ACU = 2GB RAM"
+  type        = number
+  default     = 0.5
+}
+
+variable "serverless_max_capacity" {
+  description = "Maximum Aurora Serverless v2 capacity units (ACUs). 1 ACU = 2GB RAM"
+  type        = number
+  default     = 1
+}
+
+variable "max_parallel_workers" {
+  description = "Maximum parallel workers for HNSW index builds (set to vCPUs - 2)"
+  type        = number
+  default     = 2  # Conservative default for small instances
 }

@@ -1,26 +1,49 @@
+resource "null_resource" "build_lambda" {
+  triggers = {
+    requirements = filemd5("${path.module}/../src/lambda/requirements.txt")
+    code         = filemd5("${path.module}/../src/lambda/sample.py")
+  }
+
+  provisioner "local-exec" {
+    command = "chmod +x ${path.module}/build_lambda.sh && ${path.module}/build_lambda.sh ${abspath(path.module)}/../src/lambda ${abspath(path.module)}/../build/lambda"
+  }
+}
+
+
 data "archive_file" "lambda_zip" {
   type        = "zip"
-  source_file = "${path.module}/../src/lambda/sample.py"
-  output_path = "${path.module}/../src/lambda/sample.zip"
+  source_dir  = "${path.module}/../build/lambda"
+  output_path = "${path.module}/../build/sample.zip"
+  
+  depends_on = [null_resource.build_lambda]
 }
 
 resource "aws_lambda_function" "sample" {
   function_name    = "sample-function"
   role            = aws_iam_role.lambda_role.arn
-  handler         = "sample.handler"  # sample.py with handler() function
+  handler         = "sample.handler"
   runtime         = "python3.11"
   
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
+  timeout         = var.lambda_timeout
+  memory_size     = var.lambda_memory
+
+  vpc_config {
+    subnet_ids         = [aws_subnet.private_1.id, aws_subnet.private_2.id]
+    security_group_ids = [aws_security_group.lambda.id]
+  }
+
   environment {
     variables = {
-      OPENSEARCH_ENDPOINT = aws_opensearch_domain.immigration_docs.endpoint
-      OPENSEARCH_SECRET   = aws_secretsmanager_secret.opensearch_creds.name
-      OPENSEARCH_INDEX    = "immigration-documents"
+      PGVECTOR_SECRET_ARN      = aws_secretsmanager_secret.pgvector_creds.arn
+      PGVECTOR_DB_HOST         = aws_rds_cluster.pgvector.endpoint
+      PGVECTOR_DB_NAME         = var.db_name
+      PGVECTOR_DB_PORT         = tostring(aws_rds_cluster.pgvector.port)
+
       BEDROCK_EMBEDDING_MODEL  = var.bedrock_embedding_model_id
       EMBEDDING_DIMENSIONS     = var.bedrock_embedding_dimensions
-      AWS_REGION              = var.aws_region
     }
   }
 }
