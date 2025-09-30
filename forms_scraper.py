@@ -8,88 +8,193 @@ import os
 import uuid
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+import hashlib
+import traceback
 
-def get_latest_pdf_from_page(page_url, keywords=None):
+# ----------------------
+# Utilities
+# ----------------------
+def now_date() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
+def make_hash(entry: dict) -> str:
+    """Create a stable hash for deduplication from title, section, content, source."""
+    s = f"{entry.get('title','')}||{entry.get('section','')}||{entry.get('content','')}||{entry.get('source','')}"
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+# ----------------------
+# PDF discovery
+# ----------------------
+def get_latest_pdf_from_page(page_url: str, keywords: list | None = None, prefer_text_keyword: bool = False) -> str | None:
     """
-    Fetches the HTML page and finds the latest PDF link.
-    Optionally filters by a list of keywords in href.
+    Fetch HTML and find pdf links. keywords: list of substrings to filter href/text.
+    prefer_text_keyword: if True, also checks anchor text for keyword matches (useful when href obfuscated).
+    Returns absolute PDF URL or None.
     """
-    response = requests.get(page_url)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
-    pdf_links = []
+    try:
+        resp = requests.get(page_url, timeout=20)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"❌ Failed to fetch page {page_url}: {e}")
+        return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    candidates = []
 
     for a in soup.find_all("a", href=True):
-        href = a['href']
-        if href.lower().endswith(".pdf"):
-            if keywords is None or any(kw.lower() in href.lower() for kw in keywords):
-                pdf_links.append(urljoin(page_url, href))
+        href = a['href'].strip()
+        href_lower = href.lower()
+        if not href_lower.endswith(".pdf"):
+            continue
+        full = urljoin(page_url, href)
 
-    if not pdf_links:
+        if keywords is None:
+            candidates.append((full, a.get_text(strip=True)))
+        else:
+            # accept if any keyword in href OR (optionally) anchor text
+            match = any(kw.lower() in href_lower for kw in keywords)
+            if not match and prefer_text_keyword:
+                txt = a.get_text(" ", strip=True).lower()
+                match = any(kw.lower() in txt for kw in keywords)
+            if match:
+                candidates.append((full, a.get_text(strip=True)))
+
+    if not candidates:
         print(f"No PDF links found on page: {page_url}")
         return None
 
-    latest_pdf = pdf_links[0]  # First link assumed latest
-    print(f"Latest PDF found for {page_url}: {latest_pdf}")
-    return latest_pdf
+    # Heuristics to pick the "latest":
+    # - If multiple, try to pick one with a date-like substring (YYYY or YYYY-MM).
+    # - Otherwise pick first encountered (often newest on IRCC pages).
+    def score_candidate(item):
+        url, text = item
+        u = url.lower()
+        score = 0
+        # prefer year strings
+        for y in range(1990, 2031):
+            ys = str(y)
+            if ys in u:
+                score += 10
+        # prefer keyword presence (already filtered)
+        # prefer shorter path (likely canonical)
+        score -= len(u.split('/'))
+        return score
 
+    candidates.sort(key=score_candidate, reverse=True)
+    chosen = candidates[0][0]
+    print(f"Latest PDF found for {page_url}: {chosen}")
+    return chosen
 
-def extract_fields_from_pdf(pdf_url: str):
+# ----------------------
+# XFA parsing helpers
+# ----------------------
+def try_parse_xml_safe(xml_text: str):
+    """Return ElementTree root or None on failure (wrap in try since many packets may not be XML)."""
+    try:
+        return ET.fromstring(xml_text)
+    except Exception:
+        return None
+
+def extract_xfa_fields_from_xml_root(root: ET.Element, pdf_url: str, date_scraped: str):
     """
-    Extract fields from a single PDF and return them as a list of dicts.
+    Given an ElementTree root of an XFA form packet (likely 'form' or similar),
+    extract field entries robustly using namespace handling.
     """
-    print(f"Fetching PDF: {pdf_url}")
-    response = requests.get(pdf_url, stream=True)
-    response.raise_for_status()
-
-    pdf_bytes = io.BytesIO(response.content)
-    reader = PdfReader(pdf_bytes)
-    xfa = reader.xfa
-    if not xfa:
-        print(f"No XFA data found in PDF: {pdf_url}")
-        return []
-
-    # Extract form.xml
-    form_xml = None
-    if isinstance(xfa, list):
-        for i in range(0, len(xfa), 2):
-            packet_name = xfa[i].decode("utf-8", errors="ignore")
-            if packet_name == "form":
-                form_xml = xfa[i+1].decode("utf-8", errors="ignore")
-                break
-    elif isinstance(xfa, dict) and "form" in xfa:
-        data = xfa["form"]
-        form_xml = data if isinstance(data, str) else data.decode("utf-8", errors="ignore")
-
-    if not form_xml:
-        print(f"form.xml not found in PDF: {pdf_url}")
-        return []
-
-    root = ET.fromstring(form_xml)
-    date_scraped = datetime.today().strftime("%Y-%m-%d")
     entries = []
+    # derive namespace map if present
+    ns = {}
+    if root.tag.startswith("{"):
+        uri = root.tag[root.tag.find("{")+1:root.tag.find("}")]
+        ns = {'xfa': uri}
+    else:
+        ns = {}
 
-    ns = {'xfa': root.tag[root.tag.find("{")+1:root.tag.find("}")]} if "{" in root.tag else {}
+    # We want to traverse subform hierarchy while preserving section path (full path).
+    def recurse(node: ET.Element, section_path: str = "MainForm"):
+        # if node is subform with a name, extend path
+        node_name = node.attrib.get("name")
+        current_section = section_path
+        if node.tag.endswith("subform") or (node.tag.lower().endswith("subform")):
+            if node_name:
+                current_section = section_path + " > " + node_name if section_path else node_name
 
-    def recurse_subform(node, parent_section="MainForm"):
-        section_name = node.attrib.get("name", parent_section)
+        # find direct child fields (not using .// to avoid duplicates across nested subforms)
+        # We will search for child field elements under node (any depth but avoid going past nested subforms)
+        for field in node.findall(".//", ns):
+            # The prior .findall(".//") returns lots; instead iterate explicit fields under node tree but stop descending into nested subforms
+            # Simpler: find all field elements starting at this node but ensure that their ancestor subform (closest) is this node
+            pass
 
-        for field in node.findall(".//xfa:field", ns):
-            field_uuid = str(uuid.uuid4())
-            original_field_name = field.attrib.get("name", "")
+    # Simpler robust approach: collect all <field> anywhere and then determine their nearest ancestor subform name by walking up.
+    # Build mapping of element -> parent using manual tree walk to enable ancestor lookup.
+    parent_map = {c: p for p in root.iter() for c in p}
+    # collect all field elements
+    field_elems = []
+    if ns:
+        field_elems = root.findall(".//xfa:field", ns)
+    else:
+        field_elems = root.findall(".//field")
 
-            # Extract dropdown/options
+    for field in field_elems:
+        try:
+            # find nearest ancestor subform node that has a name attribute
+            ancestor = field
+            section_parts = []
+            while ancestor is not None and ancestor is not root:
+                ancestor = parent_map.get(ancestor)
+                if ancestor is None:
+                    break
+                # tag match for subform (namespace-aware)
+                tag_clean = ancestor.tag
+                if isinstance(tag_clean, str) and tag_clean.lower().endswith("subform"):
+                    nm = ancestor.attrib.get("name")
+                    if nm:
+                        section_parts.insert(0, nm)
+            section = " > ".join(section_parts) if section_parts else "MainForm"
+
+            # original field name
+            original_field_name = field.attrib.get("name", "") or ""
+
+            # caption handling: prefer caption/value/text but be resilient
+            caption_text = ""
+            if ns:
+                caption_node = field.find(".//xfa:caption", ns)
+            else:
+                caption_node = field.find(".//caption")
+            if caption_node is not None:
+                # try to grab text children
+                # check multiple possible nested paths
+                texts = []
+                for txt in caption_node.findall(".//", ns) if ns else caption_node.findall(".//"):
+                    # pick elements whose tag ends with 'text' or contains textual value
+                    taglow = txt.tag.lower()
+                    if isinstance(taglow, str) and taglow.endswith("text"):
+                        if txt.text and txt.text.strip():
+                            texts.append(txt.text.strip())
+                if texts:
+                    caption_text = " ".join(texts)
+
+            # options: find any items/text child nodes
             options = []
-            for items in field.findall(".//xfa:items", ns):
-                for text_elem in items.findall("xfa:text", ns):
-                    if text_elem.text and text_elem.text.strip():
-                        options.append(text_elem.text.strip())
-            content = ", ".join(options) if options else original_field_name
+            if ns:
+                items_nodes = field.findall(".//xfa:items", ns)
+            else:
+                items_nodes = field.findall(".//items")
+            for items in items_nodes:
+                if ns:
+                    text_nodes = items.findall("xfa:text", ns)
+                else:
+                    text_nodes = items.findall("text")
+                for t in text_nodes:
+                    if t.text and t.text.strip():
+                        options.append(t.text.strip())
+
+            content = ", ".join(options) if options else (caption_text or original_field_name or "")
 
             entry = {
-                "id": field_uuid,
+                "id": str(uuid.uuid4()),
                 "title": original_field_name,
-                "section": section_name,
+                "section": section,
                 "content": content,
                 "source": pdf_url,
                 "date_published": None,
@@ -97,63 +202,245 @@ def extract_fields_from_pdf(pdf_url: str):
                 "granularity": "field-level"
             }
             entries.append(entry)
+        except Exception as e:
+            # keep going on errors per-field
+            print(f"⚠️ Error parsing a field element: {e}")
+            continue
 
-        for sub in node.findall("xfa:subform", ns):
-            recurse_subform(sub, section_name)
-
-    for subform in root.findall("xfa:subform", ns):
-        recurse_subform(subform)
-
-    print(f"✅ Extracted {len(entries)} fields from {pdf_url}")
     return entries
 
-def extract_fields_from_webpages(page_urls: list, output_file: str = "all_forms.json", pdf_keywords=None):
+# ----------------------
+# Main PDF extraction
+# ----------------------
+def extract_fields_from_pdf(pdf_url: str) -> list:
     """
-    Extract fields from multiple web pages containing PDFs and append to a single JSON.
+    Extract XFA or AcroForm fields from a pdf URL. Return list of entries.
     """
+    print(f"Fetching PDF: {pdf_url}")
+    try:
+        resp = requests.get(pdf_url, stream=True, timeout=30)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"❌ Failed to fetch PDF {pdf_url}: {e}")
+        return []
+
+    try:
+        pdf_bytes = io.BytesIO(resp.content)
+        reader = PdfReader(pdf_bytes)
+    except Exception as e:
+        print(f"❌ pypdf failed to read PDF {pdf_url}: {e}")
+        return []
+
+    date_scraped = now_date()
     all_entries = []
 
-    # Load existing JSON if it exists
+    # 1) XFA extraction (robust: try all packets that might contain XML)
+    try:
+        xfa = reader.xfa
+    except Exception:
+        xfa = None
+
+    if xfa:
+        # xfa can be list or dict or other. Try to find candidate XML blobs.
+        xml_candidates = []
+
+        # list style (alternating name, bytes)
+        if isinstance(xfa, list):
+            for i in range(0, len(xfa), 2):
+                # some entries are bytes; decode safely
+                try:
+                    name = xfa[i].decode("utf-8", errors="ignore") if isinstance(xfa[i], (bytes, bytearray)) else str(xfa[i])
+                except Exception:
+                    name = str(xfa[i])
+                blob = xfa[i+1]
+                try:
+                    blob_text = blob.decode("utf-8", errors="ignore") if isinstance(blob, (bytes, bytearray)) else str(blob)
+                    xml_candidates.append((name, blob_text))
+                except Exception:
+                    continue
+
+        # dict style
+        elif isinstance(xfa, dict):
+            for k, v in xfa.items():
+                try:
+                    txt = v if isinstance(v, str) else v.decode("utf-8", errors="ignore")
+                    xml_candidates.append((k, txt))
+                except Exception:
+                    continue
+
+        # prioritize 'form' packet if present
+        form_candidate = next((t for t in xml_candidates if t[0].lower() == "form"), None)
+        parsed_entries = []
+        if form_candidate:
+            root = try_parse_xml_safe(form_candidate[1])
+            if root is not None:
+                parsed_entries = extract_xfa_fields_from_xml_root(root, pdf_url, date_scraped)
+        else:
+            # try parse each candidate, collecting fields if parse succeeds
+            for name, txt in xml_candidates:
+                root = try_parse_xml_safe(txt)
+                if root is None:
+                    continue
+                parsed_entries.extend(extract_xfa_fields_from_xml_root(root, pdf_url, date_scraped))
+
+        if parsed_entries:
+            print(f"✅ Extracted {len(parsed_entries)} XFA fields from {pdf_url}")
+            return parsed_entries
+        else:
+            # fall through to AcroForm if no XFA fields found
+            print(f"ℹ️ XFA present but no fields parsed for {pdf_url}. Trying AcroForm fallback.")
+    else:
+        print(f"ℹ️ No XFA in PDF: {pdf_url}. Trying AcroForm extraction.")
+
+    # 2) AcroForm extraction
+    acro_entries = []
+    try:
+        # pypdf's get_fields may return dict or None
+        fields = None
+        try:
+            fields = reader.get_fields()
+        except Exception:
+            # some pypdf versions: try get_form_text_fields
+            try:
+                fields = reader.get_form_text_fields()
+            except Exception:
+                fields = None
+
+        if fields:
+            # fields is a dict mapping fieldname -> field dict or value
+            for name, meta in fields.items():
+                try:
+                    field_uuid = str(uuid.uuid4())
+                    # meta might be a dict: look for '/V' or 'V' or direct string
+                    value = ""
+                    if isinstance(meta, dict):
+                        # common keys: '/V', 'V'
+                        value = meta.get('/V') or meta.get('V') or meta.get('value') or ""
+                        if isinstance(value, bytes):
+                            try:
+                                value = value.decode('utf-8', errors='ignore')
+                            except Exception:
+                                value = str(value)
+                    else:
+                        # sometimes meta is the string value
+                        value = str(meta)
+                    content = value if value else str(name)
+                    acro_entries.append({
+                        "id": str(uuid.uuid4()),
+                        "title": name,
+                        "section": "AcroForm",
+                        "content": content,
+                        "source": pdf_url,
+                        "date_published": None,
+                        "date_scraped": date_scraped,
+                        "granularity": "field-level"
+                    })
+                except Exception:
+                    continue
+
+            if acro_entries:
+                print(f"✅ Extracted {len(acro_entries)} AcroForm fields from {pdf_url}")
+                return acro_entries
+    except Exception as e:
+        print(f"⚠️ Error while extracting AcroForm fields: {e}\n{traceback.format_exc()}")
+
+    # 3) Last-resort: text extraction heuristic (best-effort)
+    try:
+        text_chunks = []
+        for p in reader.pages:
+            try:
+                txt = p.extract_text() or ""
+                if txt.strip():
+                    text_chunks.append(txt)
+            except Exception:
+                continue
+        full_text = "\n".join(text_chunks)
+        if full_text.strip():
+            # crude heuristic: split on lines that look like questions (lines ending with '?', or lines with ":" and short length)
+            lines = [l.strip() for l in full_text.splitlines() if l.strip()]
+            # keep 200 most relevant lines
+            heuristics = []
+            for line in lines:
+                if len(line) < 300 and (line.endswith('?') or ':' in line or len(line.split()) < 8):
+                    heuristics.append(line)
+            heuristics = heuristics[:200]
+            if heuristics:
+                fallback_entries = []
+                for ln in heuristics:
+                    fallback_entries.append({
+                        "id": str(uuid.uuid4()),
+                        "title": ln[:80],
+                        "section": "PageTextHeuristic",
+                        "content": ln,
+                        "source": pdf_url,
+                        "date_published": None,
+                        "date_scraped": date_scraped,
+                        "granularity": "page-level"
+                    })
+                print(f"ℹ️ Fallback: created {len(fallback_entries)} heuristic text entries for {pdf_url}")
+                return fallback_entries
+    except Exception:
+        pass
+
+    print(f"No usable fields found for {pdf_url}")
+    return []
+
+# ----------------------
+# Multi-page orchestrator
+# ----------------------
+def extract_fields_from_webpages(page_urls: list, output_file: str = "all_forms.json", pdf_keywords: list | None = None,
+                                 prefer_text_keyword: bool = False, dedupe: bool = True):
+    """
+    Top-level function to process many pages, find latest pdfs, extract fields, and append to JSON.
+    - pdf_keywords: list of keyword substrings to filter pdf links (e.g., ["imm", "cit"])
+    - prefer_text_keyword: if True, anchor text also used for keyword matching
+    - dedupe: deduplicate using hash(title,section,content,source)
+    """
+    saved = []
+    existing_hashes = set()
+
+    # load existing file
     if os.path.exists(output_file):
-        with open(output_file, "r", encoding="utf-8") as f:
-            all_entries = json.load(f)
+        try:
+            with open(output_file, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            if dedupe:
+                existing_hashes = {make_hash(e) for e in saved}
+        except Exception:
+            saved = []
+            existing_hashes = set()
 
-    for page_url in page_urls:
-        pdf_url = get_latest_pdf_from_page(page_url, keywords=pdf_keywords)
-        if pdf_url:
+    for page in page_urls:
+        try:
+            pdf_url = get_latest_pdf_from_page(page, keywords=pdf_keywords, prefer_text_keyword=prefer_text_keyword)
+            if not pdf_url:
+                continue
             entries = extract_fields_from_pdf(pdf_url)
-            all_entries.extend(entries)
+            for e in entries:
+                h = make_hash(e)
+                if dedupe and h in existing_hashes:
+                    continue
+                existing_hashes.add(h)
+                saved.append(e)
+        except Exception as e:
+            print(f"❌ Error processing page {page}: {e}")
+            continue
 
-    # Save all entries to JSON
+    # write out
     os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
     with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(all_entries, f, ensure_ascii=False, indent=2)
+        json.dump(saved, f, ensure_ascii=False, indent=2)
 
-    print(f"✅ Total entries saved in {output_file}: {len(all_entries)}")
-    return all_entries
+    print(f"✅ Done. Total entries saved in {output_file}: {len(saved)}")
+    return saved
 
-# --------------------------
+# ----------------------
 # Example usage
-# --------------------------
+# ----------------------
 if __name__ == "__main__":
     webpages = [
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5710.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm1295.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5583.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5709.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5686.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5708.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5557.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0001.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0002.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0003.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm1344.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5533.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5257.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5645.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5409.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5476.html",
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5475.html"
-
+        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5710.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm1295.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5583.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5709.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5686.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5708.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5557.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0001.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0002.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0003.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm1344.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5533.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5257.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5645.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5409.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5476.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5475.html"
     ]
-    extract_fields_from_webpages(webpages, "all_forms.json", pdf_keywords=["imm", "cit"])
+
+    # Provide multiple keywords (matching href or anchor text if prefer_text_keyword True)
+    extract_fields_from_webpages(webpages, "all_forms.json", pdf_keywords=["imm", "cit"], prefer_text_keyword=True)
