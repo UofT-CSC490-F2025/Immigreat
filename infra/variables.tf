@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "lambda_timeout" {
   description = "Lambda function timeout in seconds"
   type        = number
-  default     = 120
+  default     = 30
 }
 
 variable "lambda_memory" {

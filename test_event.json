@@ -1,0 +1,13 @@
+
+[
+  {
+    "id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+    "title": "The Immigration and Nationality Act",
+    "section": "Sec. 212. [8 U.S.C. 1182]",
+    "content": "Classes of Aliens Ineligible for Visas or Admission.-Except as otherwise provided in this Act, aliens who are inadmissible under the following paragraphs are ineligible to receive visas and ineligible to be admitted to the United States.",
+    "source": "https://uscode.house.gov/view.xhtml?req=(title:8%20section:1182%20edition:prelim)",
+    "date_published": "2023-01-01",
+    "date_scraped": "2024-07-30",
+    "granularity": "section"
+  }
+]

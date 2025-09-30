@@ -1,6 +1,6 @@
 resource "aws_secretsmanager_secret" "pgvector_creds" {
   name        = "pgvector/dev/db-credentials"
-  description = "pgvector Aurora PostgreSQL credentials"
+  description = "pgvector RDS PostgreSQL credentials"
 
   tags = {
     Name        = "pgvector-db-credentials"
@@ -13,8 +13,8 @@ resource "aws_secretsmanager_secret_version" "pgvector_creds" {
   secret_string = jsonencode({
     username = var.db_username
     password = var.db_password
-    host     = aws_rds_cluster.pgvector.endpoint
-    port     = aws_rds_cluster.pgvector.port
+    host     = aws_db_instance.pgvector.address
+    port     = aws_db_instance.pgvector.port
     dbname   = var.db_name
     engine   = "postgres"
   })

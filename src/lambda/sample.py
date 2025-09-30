@@ -250,62 +250,44 @@ def handler(event, context):
         
         print(f"Loaded {len(documents)} documents from S3")
         
-        # Process the first document to generate embeddings
-        processed_docs = []
-        
-        processed_doc = process_document(documents[0])
-        if processed_doc:
-            processed_docs.append(processed_doc)
-        
-        print(f"Successfully processed {len(processed_docs)} documents")
         
         # Connect to database
         connection = get_db_connection()
         cursor = connection.cursor()
         
-        try:
-            # Initialize database (idempotent)
-            initialize_database(cursor)
-            
-            # Insert documents with embeddings
-            insert_documents(cursor, processed_docs)
-            
-            # Commit transaction
-            connection.commit()
-            
-            result = {
-                'statusCode': 200,
-                'body': json.dumps({
-                    'message': 'Documents processed successfully',
-                    'bucket': bucket_name,
-                    'key': object_key,
-                    'total_documents': len(documents),
-                    'processed_documents': len(processed_docs),
-                    'failed_documents': len(documents) - len(processed_docs)
-                })
-            }
-            
-            print(f"Processing complete: {result['body']}")
-            return result
-            
-        except Exception as e:
-            connection.rollback()
-            print(f"Database error, rolling back: {str(e)}")
-            raise
-            
-        finally:
-            cursor.close()
-            connection.close()
-            print("Database connection closed")
-            
-    except Exception as e:
-        error_message = f"Error processing S3 event: {str(e)}"
-        print(error_message)
+        # Initialize database (creates table and extension if not exists)
+        initialize_database(cursor)
         
+        # Process documents in parallel
+        processed_docs = []
+        for doc in documents:
+            processed_doc = process_document(doc)
+            if processed_doc:
+                processed_docs.append(processed_doc)
+        
+        # Insert documents into database
+        if processed_docs:
+            insert_documents(cursor, processed_docs)
+        
+        # Commit changes and close connection
+        connection.commit()
+        cursor.close()
+        connection.close()
+        
+        print("Successfully processed and inserted all documents")
+
         return {
-            'statusCode': 500,
-            'body': json.dumps({
-                'message': 'Error processing documents',
-                'error': str(e)
+            "statusCode": 200,
+            "body": json.dumps({
+                "message": f"Successfully processed {len(processed_docs)} documents"
             })
         }
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": str(e)})
+        }
+        
+        

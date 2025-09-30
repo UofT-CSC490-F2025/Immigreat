@@ -23,7 +23,7 @@ resource "aws_security_group_rule" "aurora_allow_lambda" {
   from_port                = 5432
   to_port                  = 5432
   protocol                 = "tcp"
-  security_group_id        = aws_security_group.aurora.id
+  security_group_id        = aws_security_group.postgres.id
   source_security_group_id = aws_security_group.lambda.id
   description              = "Allow Lambda to access Aurora PostgreSQL"
 }

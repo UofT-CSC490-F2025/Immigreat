@@ -31,16 +31,16 @@ resource "aws_lambda_function" "sample" {
   memory_size     = var.lambda_memory
 
   vpc_config {
-    subnet_ids         = [aws_subnet.private_1.id, aws_subnet.private_2.id]
+    subnet_ids         = [aws_subnet.private_2.id]
     security_group_ids = [aws_security_group.lambda.id]
   }
 
   environment {
     variables = {
-      PGVECTOR_SECRET_ARN      = aws_secretsmanager_secret.pgvector_creds.arn
-      PGVECTOR_DB_HOST         = aws_rds_cluster.pgvector.endpoint
-      PGVECTOR_DB_NAME         = var.db_name
-      PGVECTOR_DB_PORT         = tostring(aws_rds_cluster.pgvector.port)
+      PGVECTOR_SECRET_ARN     = aws_secretsmanager_secret.pgvector_creds.arn
+      PGVECTOR_DB_HOST        = aws_db_instance.pgvector.address 
+      PGVECTOR_DB_NAME        = var.db_name 
+      PGVECTOR_DB_PORT        = tostring(aws_db_instance.pgvector.port)
 
       BEDROCK_EMBEDDING_MODEL  = var.bedrock_embedding_model_id
       EMBEDDING_DIMENSIONS     = var.bedrock_embedding_dimensions

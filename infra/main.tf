@@ -83,17 +83,17 @@ resource "aws_db_subnet_group" "main" {
   }
 }
 
-# Security Group for Aurora
-resource "aws_security_group" "aurora" {
-  name        = "pgvector-aurora-sg"
-  description = "Security group for pgvector Aurora cluster"
+# Security Group for post gress
+resource "aws_security_group" "postgres" {
+  name        = "pgvector-postgres-sg"
+  description = "Security group for pgvector RDS PostgreSQL instance"
   vpc_id      = aws_vpc.main.id
 
   ingress {
     from_port   = 5432
     to_port     = 5432
     protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
+    cidr_blocks = [var.vpc_cidr] # allow connections from within your VPC CIDR
     description = "PostgreSQL access from VPC"
   }
 
@@ -106,6 +106,87 @@ resource "aws_security_group" "aurora" {
   }
 
   tags = {
-    Name = "pgvector-aurora-sg"
+    Name = "pgvector-postgres-sg"
+  }
+}
+
+
+
+data "aws_vpc_endpoint_service" "bedrock" {
+  service = "bedrock-runtime"
+}
+
+resource "aws_security_group" "vpc_endpoints" {
+  name        = "pgvector-vpc-endpoints-sg"
+  description = "Security group for VPC endpoints"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+    description = "HTTPS access from VPC"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound traffic"
+  }
+
+  tags = merge(local.common_tags, {
+    Name = "pgvector-vpc-endpoints-sg"
+  })
+}
+
+resource "aws_vpc_endpoint" "bedrock_runtime" {
+  vpc_id              = aws_vpc.main.id
+  service_name        = data.aws_vpc_endpoint_service.bedrock.service_name
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private_2.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  
+  private_dns_enabled = true
+  
+  tags = {
+    Name = "Bedrock Runtime VPC Endpoint"
+  }
+}
+
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id       = aws_vpc.main.id
+  service_name = "com.amazonaws.${var.aws_region}.s3"
+  vpc_endpoint_type = "Gateway"
+
+  route_table_ids = [data.aws_route_table.main.id]
+
+  tags = {
+    Name = "S3 VPC Endpoint"
+  }
+}
+
+resource "aws_vpc_endpoint" "secretsmanager" {
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private_2.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  
+  private_dns_enabled = true
+  
+  tags = {
+    Name = "Secrets Manager VPC Endpoint"
+  }
+}
+
+data "aws_route_table" "main" {
+  vpc_id = aws_vpc.main.id
+
+  filter {
+    name   = "association.main"
+    values = ["true"]
   }
 }
