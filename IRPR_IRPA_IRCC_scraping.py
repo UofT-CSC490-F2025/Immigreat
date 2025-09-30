@@ -4,8 +4,8 @@ import xml.etree.ElementTree as ET
 import re
 import json
 import boto3
-from datetime import date
 import uuid
+from datetime import date
 
 # ---------- PART 1: JUSTICE LAWS (IRPA + IRPR) ----------
 JUSTICE_XMLS = {
@@ -27,64 +27,84 @@ def parse_and_store(law_name, xml_url):
     m = re.match(r"\{(.*)\}", root.tag)
     if m:
         ns = {"ns": m.group(1)}
-        section_tag = "ns:Section"
-        subsection_tag = "ns:Subsection"
-        num_tag = "ns:Num"
-        heading_tag = "ns:Heading"
-        text_tag = ".//ns:Text"
+        section_path = ".//ns:Section"
+        subsection_path = ".//ns:Subsection"
+        num_path = "ns:Num"
+        heading_path = "ns:Heading"
+        text_path = ".//ns:Text"
     else:
         ns = {}
-        section_tag = "Section"
-        subsection_tag = "Subsection"
-        num_tag = "Num"
-        heading_tag = "Heading"
-        text_tag = ".//Text"
+        section_path = ".//Section"
+        subsection_path = ".//Subsection"
+        num_path = "Num"
+        heading_path = "Heading"
+        text_path = ".//Text"
 
-    def extract_text(elem):
-        """Extract all meaningful text from element and its children."""
-        texts = [t.text.strip() for t in elem.findall(text_tag, ns) if t.text]
-        if not texts:
-            texts = [t.strip() for t in elem.itertext() if t.strip()]
-        return " ".join(texts)
+    # Collect both Section and Subsection elements
+    sections = root.findall(section_path, ns)
+    print(f"  Found {len(sections)} sections in {law_name}")
 
-    def process_element(elem, parent_number="", parent_heading=""):
-        """Recursively process sections, subsections, paragraphs."""
-        number = elem.findtext(num_tag, default=None, namespaces=ns)
-        heading = elem.findtext(heading_tag, default=None, namespaces=ns)
+    for i, section in enumerate(sections, start=1):
+        number = section.findtext(num_path, default="", namespaces=ns).strip()
+        heading = section.findtext(heading_path, default="", namespaces=ns).strip()
 
+        # Fallbacks if missing
         if not number:
-            number = f"{parent_number}" if parent_number else "Sec-1"
-        else:
-            number = f"{parent_number}.{number}" if parent_number else number
-
+            number = f"Sec-{i}"
         if not heading:
-            heading = f"{parent_heading} Section {number}" if parent_heading else f"{law_name} Section {number}"
+            heading = f"{law_name} Section {number}"
 
-        content = extract_text(elem)
+        # Get full section text (excluding subsections for now)
+        texts = []
+        for t in section.findall(text_path, ns):
+            if t.text:
+                texts.append(t.text.strip())
 
+        content = " ".join(texts).strip()
+
+        # Collect subsection entries
+        subsection_texts = []
+        for sub in section.findall(subsection_path, ns):
+            sub_num = sub.findtext(num_path, default="", namespaces=ns).strip()
+            sub_texts = []
+            for t in sub.findall(text_path, ns):
+                if t.text:
+                    sub_texts.append(t.text.strip())
+
+            sub_content = " ".join(sub_texts).strip()
+
+            if sub_num:  
+                # Subsection has its own number -> store as its own entry
+                docs.append({
+                    "id": str(uuid.uuid4()),
+                    "title": f"{law_name} Section {number}({sub_num})",
+                    "section": f"{number}({sub_num})",
+                    "content": sub_content,
+                    "source": law_name,
+                    "date_published": None,
+                    "date_scraped": str(date.today()),
+                    "granularity": "subsection"
+                })
+            else:
+                # Subsection has no number -> merge into parent section
+                if sub_content:
+                    subsection_texts.append(sub_content)
+
+        # Merge orphan subsections into the section content
+        if subsection_texts:
+            content = (content + " " + " ".join(subsection_texts)).strip()
+
+        # Store parent section entry
         docs.append({
             "id": str(uuid.uuid4()),
-            "title": heading,
+            "title": f"{law_name} Section {number}",
             "section": number,
             "content": content,
             "source": law_name,
-            "date_published": None,  # XML does not provide publication date
+            "date_published": None,
             "date_scraped": str(date.today()),
-            "granularity": "section"  # section-level entry for laws
+            "granularity": "section"
         })
-
-        # TODO Note: Here's the logic that processes subsections. We are only using title and section.
-        # If there are subsections, title = title + subsection, and section = subsection is stored. And so on.
-
-        # Recursively process subsections
-        for sub_elem in elem.findall(subsection_tag, ns):
-            process_element(sub_elem, parent_number=number, parent_heading=heading)
-
-    # Find all top-level sections and process recursively
-    sections = root.findall(".//" + section_tag, ns)
-    print(f"  Found {len(sections)} top-level sections in {law_name}")
-    for sec in sections:
-        process_element(sec)
 
 # Run for each law
 for law_name, xml_url in JUSTICE_XMLS.items():
@@ -104,7 +124,7 @@ ALLOWED_PREFIXES = [
 ]
 
 #TODO adjust max pages to scrape and depth of scraping appropriately
-MAX_PAGES = 100
+MAX_PAGES = 50
 
 def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
     if visited is None:
@@ -138,30 +158,26 @@ def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
         print(f"Skipping archived page: {url}")
         return
 
-    # attempt to extract publication date from meta tags
-    date_published = None
-    for meta_name in ["datePublished", "DC.date", "article:published_time"]:
-        tag = soup.find("meta", {"name": meta_name}) or soup.find("meta", {"property": meta_name})
-        if tag and tag.get("content"):
-            date_published = tag["content"]
-            break
+    # Hybrid approach: page-level + section-level
+    full_texts = []
+    for elem in main.find_all(["p", "li"]):
+        txt = elem.get_text(strip=True)
+        if txt:
+            full_texts.append(txt)
 
-    # ---------- HYBRID: PAGE-LEVEL ENTRY ----------
-    # create a single document representing the entire page (useful for archival / full-page retrieval)
-    page_content = main.get_text("\n", strip=True)
-    if page_content:
+    if full_texts:
         docs.append({
             "id": str(uuid.uuid4()),
             "title": title,
-            "section": "",  # empty for full page
-            "content": page_content,
+            "section": None,
+            "content": "\n".join(full_texts),
             "source": "IRCC",
-            "date_published": date_published,
+            "date_published": None,
             "date_scraped": str(date.today()),
-            "granularity": "page"  # page-level entry
+            "granularity": "page"
         })
 
-    # break content by h2 sections instead of one blob (section-level entries for RAG / fine-grained retrieval)
+    # break content by h2 sections instead of one blob
     for section in main.find_all("h2"):
         heading = section.get_text(strip=True)
         texts = []
@@ -180,9 +196,9 @@ def scrape_ircc_page(title, url, depth=1, visited=None, count=[0]):
                 "section": heading,
                 "content": "\n".join(texts),
                 "source": "IRCC",
-                "date_published": date_published,
+                "date_published": None,
                 "date_scraped": str(date.today()),
-                "granularity": "section"  # section-level entry
+                "granularity": "section"
             })
 
     # crawl sub-links only if they match allowed patterns
@@ -202,7 +218,7 @@ for title, url in IRCC_PAGES.items():
 # ---------- CHECK DATA ----------
 print("Database filled. Example rows:")
 for row in docs[:5]:
-    print((row["id"], row["source"], row["title"], row["section"], row["content"][:100], row.get("granularity"), row["date_published"], row["date_scraped"]))
+    print((row["source"], row["title"], row["section"], row["content"][:100]))
 
 # ---------- EXPORT TO JSON ----------
 output_file = "immigration_data.json"
