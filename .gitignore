@@ -1,4 +1,13 @@
-immigration_laws.db
+.env
+*.env
+.venv/
+__pycache__/
+*.pyc
+data/
+*.sqlite
+.DS_Store
+*.zip
+build/immigration_laws.db
 immigration.db
 /venv/
 immigration_data.json
