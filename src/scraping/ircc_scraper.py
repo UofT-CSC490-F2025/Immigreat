@@ -1,33 +1,3 @@
-IRCC_URLS = [
-    "https://www.canada.ca/en/immigration-refugees-citizenship.html",
-    "https://www.canada.ca/en/services/immigration-citizenship.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada.html",
-    "https://ircc.canada.ca/english/information/applications/visa.asp",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/apply-visitor-visa.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/visitor-visa.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry/apply-permanent-residence.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/family-sponsorship/spouse-partner-children.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/refugees.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/permanent-residents.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/permanent-residents/card/apply.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/permanent-residents/card.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/citizenship.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/account.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/check-status.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/account/link-paper-online.html",
-    "https://ircc.canada.ca/english/helpcentre/index-featured-can.asp",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/corporate/contact-ircc.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/corporate/contact-ircc/client-support-centre.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/check-processing-times.html",
-    "https://ircc.canada.ca/english/information/fees/fees.asp",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/services/biometrics.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/corporate/partners-service-providers/authorized-paid-representatives-portal.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/news.html",
-    "https://www.canada.ca/en/immigration-refugees-citizenship/news/notices.html",
-]
-
 # --- Dependencies ---
 import re
 import time
@@ -45,9 +15,22 @@ from dateutil.parser import parse as dateparse
 import urllib.robotparser as robotparser
 import boto3
 
+from .constants import (
+    IRCC_URLS,
+    S3_BUCKET_NAME,
+    S3_IRCC_DATA_KEY,
+    HTTP_TIMEOUT_LONG as REQUESTS_TIMEOUT,
+    MIN_REQUEST_DELAY as MIN_DELAY,
+    MAX_REQUEST_DELAY as MAX_DELAY,
+    BROWSER_TIMEOUT,
+    USER_AGENT,
+    MIN_CONTENT_LENGTH,
+    DEFAULT_IRCC_OUTPUT
+)
+
 def is_useful_content(text: str) -> bool:
     """Heuristic filter for meaningful IRCC content."""
-    if not text or len(text.strip()) < 40:  # too short
+    if not text or len(text.strip()) < MIN_CONTENT_LENGTH:  # too short
         return False
     junk_markers = [
         "We have archived this page",
@@ -70,10 +53,7 @@ except Exception:
     PLAYWRIGHT_AVAILABLE = False
 
 # --- Configuration ---
-USER_AGENT = "IRCCScraperBot/1.0 (+https://your-org.example)"
-REQUESTS_TIMEOUT = 30
-MIN_DELAY = 0.5
-MAX_DELAY = 1.5
+
 OUTPUT_FILE = "ircc_scrape.json"
 CRAWL_SUBPAGES = True   # follow news/article links from listing pages
 MAX_SUBPAGE_PER_PAGE = 30
@@ -121,7 +101,7 @@ def render_with_playwright(url):
         raise RuntimeError("Playwright not installed")
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
-        page = browser.new_page(user_agent=USER_AGENT, timeout=60000)
+        page = browser.new_page(user_agent=USER_AGENT, timeout=BROWSER_TIMEOUT)
         page.goto(url, wait_until="networkidle")
         html = page.content()
         browser.close()
@@ -374,12 +354,9 @@ def scrape_all(urls, out_path=OUTPUT_FILE, crawl_subpages=CRAWL_SUBPAGES):
     # ---------- UPLOAD TO S3 ----------
     s3 = boto3.client("s3")
 
-    bucket_name = "raw-immigreation-documents"
-    s3_key = "ircc_scraped_data.json"  # path inside S3 bucket
+    s3.upload_file(out_path, S3_BUCKET_NAME, S3_IRCC_DATA_KEY)
 
-    s3.upload_file(out_path, bucket_name, s3_key)
-
-    print(f"Uploaded {out_path} to s3://{bucket_name}/{s3_key}")
+    print(f"Uploaded {out_path} to s3://{S3_BUCKET_NAME}/{S3_IRCC_DATA_KEY}")
 
     return all_records
 

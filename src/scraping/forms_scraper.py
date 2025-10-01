@@ -12,15 +12,24 @@ import hashlib
 import traceback
 import boto3
 
-webpages = [
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5710.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm1295.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5583.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5709.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5686.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5708.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5557.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0001.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0002.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0003.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm1344.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5533.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5257.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5645.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5409.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5476.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5475.html"
-    ]
+from .constants import (
+    FORMS_WEBPAGES,
+    S3_BUCKET_NAME,
+    S3_FORMS_DATA_KEY,
+    HTTP_TIMEOUT_SHORT,
+    HTTP_TIMEOUT_LONG,
+    PDF_KEYWORDS,
+    DEFAULT_FORMS_OUTPUT,
+    DATE_FORMAT
+)
+
+
 
 # ----------------------
 # Utilities
 # ----------------------
 def now_date() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).strftime(DATE_FORMAT)
 
 def make_hash(entry: dict) -> str:
     """Create a stable hash for deduplication from title, section, content, source."""
@@ -37,7 +46,7 @@ def get_latest_pdf_from_page(page_url: str, keywords: list | None = None, prefer
     Returns absolute PDF URL or None.
     """
     try:
-        resp = requests.get(page_url, timeout=20)
+        resp = requests.get(page_url, timeout=HTTP_TIMEOUT_SHORT)
         resp.raise_for_status()
     except Exception as e:
         print(f"❌ Failed to fetch page {page_url}: {e}")
@@ -223,7 +232,7 @@ def extract_fields_from_pdf(pdf_url: str) -> list:
     """
     print(f"Fetching PDF: {pdf_url}")
     try:
-        resp = requests.get(pdf_url, stream=True, timeout=30)
+        resp = requests.get(pdf_url, stream=True, timeout=HTTP_TIMEOUT_LONG)
         resp.raise_for_status()
     except Exception as e:
         print(f"❌ Failed to fetch PDF {pdf_url}: {e}")
@@ -440,12 +449,9 @@ def extract_fields_from_webpages(page_urls: list, output_file: str = "all_forms.
     # ---------- UPLOAD TO S3 ----------
     s3 = boto3.client("s3")
 
-    bucket_name = "raw-immigreation-documents"
-    s3_key = "forms_scraped_data.json"  # path inside S3 bucket
+    s3.upload_file(output_file, S3_BUCKET_NAME, S3_FORMS_DATA_KEY)
 
-    s3.upload_file(output_file, bucket_name, s3_key)
-
-    print(f"Uploaded {output_file} to s3://{bucket_name}/{s3_key}")
+    print(f"Uploaded {output_file} to s3://{S3_BUCKET_NAME}/{S3_FORMS_DATA_KEY}")
     return saved
 
-extract_fields_from_webpages(webpages, "forms_scraped_data.json", pdf_keywords=["imm", "cit"], prefer_text_keyword=True)
+extract_fields_from_webpages(FORMS_WEBPAGES, DEFAULT_FORMS_OUTPUT, pdf_keywords=PDF_KEYWORDS, prefer_text_keyword=True)
