@@ -4,11 +4,12 @@ from datetime import date
 from datasets import load_dataset
 import boto3
 
-import json
-import uuid
-from datetime import date
-from datasets import load_dataset
-import boto3
+from constants import (
+    REFUGEE_LAW_LAB_DATASETS,
+    S3_BUCKET_NAME,
+    S3_REFUGEE_LAW_LAB_DATA_KEY,
+    DEFAULT_REFUGEE_LAW_LAB_OUTPUT
+)
 
 def transform_record(record):
     """Convert one record to your schema with language filtering."""
@@ -32,10 +33,9 @@ def transform_record(record):
 
 
 # Load both RAD and RPD datasets
-datasets_to_merge = ["RAD", "RPD"]
 all_records = []
 
-for subset in datasets_to_merge:
+for subset in REFUGEE_LAW_LAB_DATASETS:
     print(f"Fetching {subset} dataset...")
     ds = load_dataset("refugee-law-lab/canadian-legal-data", subset, split="train")
     transformed = [transform_record(r) for r in ds]
@@ -45,7 +45,7 @@ for subset in datasets_to_merge:
     all_records.extend(transformed)
 
 # Save combined output
-output_file = "refugeelawlab_data_en.json"
+output_file = DEFAULT_REFUGEE_LAW_LAB_OUTPUT
 with open(output_file, "w", encoding="utf-8") as f:
     json.dump(all_records, f, ensure_ascii=False, indent=2)
 
@@ -53,8 +53,6 @@ print(f"Saved {len(all_records)} ENGLISH records from RAD + RPD to {output_file}
 
 # Upload to S3
 s3 = boto3.client("s3")
-bucket_name = "raw-immigreation-documents"
-s3_key = "refugeelawlab_data_en.json"
 
-s3.upload_file(output_file, bucket_name, s3_key)
-print(f"Uploaded {output_file} to s3://{bucket_name}/{s3_key}")
+s3.upload_file(output_file, S3_BUCKET_NAME, S3_REFUGEE_LAW_LAB_DATA_KEY)
+print(f"Uploaded {output_file} to s3://{S3_BUCKET_NAME}/{S3_REFUGEE_LAW_LAB_DATA_KEY}")

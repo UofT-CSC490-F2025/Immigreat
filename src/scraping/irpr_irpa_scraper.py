@@ -5,7 +5,12 @@ import json
 import boto3
 from datetime import date
 import uuid
-from constants import JUSTICE_XMLS
+from constants import (
+    JUSTICE_XMLS,
+    S3_BUCKET_NAME,
+    S3_IRPR_IRPA_DATA_KEY,
+    DEFAULT_IRPR_IRPA_OUTPUT
+)
 
 # store all documents in memory instead of database
 docs = []
@@ -99,7 +104,7 @@ for row in docs[:5]:
     print((row["id"], row["source"], row["title"], row["section"], row["content"][:100], row.get("granularity"), row["date_published"], row["date_scraped"]))
 
 # ---------- EXPORT TO JSON ----------
-output_file = "irpr_irpa_data.json"
+output_file = DEFAULT_IRPR_IRPA_OUTPUT
 with open(output_file, "w", encoding="utf-8") as f:
     json.dump(docs, f, ensure_ascii=False, indent=2)
 
@@ -108,9 +113,6 @@ print(f"Exported {len(docs)} records to {output_file}")
 # ---------- UPLOAD TO S3 ----------
 s3 = boto3.client("s3")
 
-bucket_name = "raw-immigreation-documents"
-s3_key = "irpr_irpa_data.json"  # path inside S3 bucket
+s3.upload_file(output_file, S3_BUCKET_NAME, S3_IRPR_IRPA_DATA_KEY)
 
-s3.upload_file(output_file, bucket_name, s3_key)
-
-print(f"Uploaded {output_file} to s3://{bucket_name}/{s3_key}")
+print(f"Uploaded {output_file} to s3://{S3_BUCKET_NAME}/{S3_IRPR_IRPA_DATA_KEY}")

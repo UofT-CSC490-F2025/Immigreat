@@ -14,6 +14,9 @@ JUSTICE_XMLS = {
     "IRPR": "https://laws-lois.justice.gc.ca/eng/XML/SOR-2002-227.xml"
 }
 
+# Refugee Law Lab dataset configuration
+REFUGEE_LAW_LAB_DATASETS = ["RAD", "RPD"]
+
 # Immigration forms webpage URLs
 FORMS_WEBPAGES = [
     "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5710.html",
@@ -76,6 +79,8 @@ S3_BUCKET_NAME = "raw-immigreation-documents"  # Note: keeping original spelling
 # S3 file keys (paths within the bucket)
 S3_FORMS_DATA_KEY = "forms_scraped_data.json"
 S3_IRCC_DATA_KEY = "ircc_scraped_data.json"
+S3_IRPR_IRPA_DATA_KEY = "irpr_irpa_data.json"
+S3_REFUGEE_LAW_LAB_DATA_KEY = "refugeelawlab_data_en.json"
 
 # =====================
 # REQUEST CONFIGURATION
@@ -108,6 +113,8 @@ MIN_CONTENT_LENGTH = 40  # Minimum character count for useful content
 # File paths for output
 DEFAULT_FORMS_OUTPUT = "forms_scraped_data.json"
 DEFAULT_IRCC_OUTPUT = "ircc_scraped_data.json"
+DEFAULT_IRPR_IRPA_OUTPUT = "irpr_irpa_data.json"
+DEFAULT_REFUGEE_LAW_LAB_OUTPUT = "refugeelawlab_data_en.json"
 
 # =====================
 # DATE FORMAT
