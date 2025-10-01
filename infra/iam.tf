@@ -17,7 +17,7 @@ resource "aws_security_group" "lambda" {
   }
 }
 
-# Allow Lambda security group to access Aurora
+
 resource "aws_security_group_rule" "aurora_allow_lambda" {
   type                     = "ingress"
   from_port                = 5432
@@ -73,6 +73,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Effect = "Allow"
         Action = [
           "s3:GetObject"
+          
         ]
         Resource = "${aws_s3_bucket.immigration_documents.arn}/*"
       },
