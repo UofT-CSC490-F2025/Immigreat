@@ -8,6 +8,12 @@ This file contains shared configuration values used across multiple scrapers.
 # URL CONFIGURATIONS
 # =====================
 
+#IRPR and IRPA xmls
+JUSTICE_XMLS = {
+    "IRPA": "https://laws-lois.justice.gc.ca/eng/XML/I-2.5.xml",
+    "IRPR": "https://laws-lois.justice.gc.ca/eng/XML/SOR-2002-227.xml"
+}
+
 # Immigration forms webpage URLs
 FORMS_WEBPAGES = [
     "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5710.html",
