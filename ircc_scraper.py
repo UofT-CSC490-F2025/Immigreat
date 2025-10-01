@@ -375,7 +375,7 @@ def scrape_all(urls, out_path=OUTPUT_FILE, crawl_subpages=CRAWL_SUBPAGES):
     s3 = boto3.client("s3")
 
     bucket_name = "raw-immigreation-documents"
-    s3_key = "forms_scraped_data.json"  # path inside S3 bucket
+    s3_key = "ircc_scraped_data.json"  # path inside S3 bucket
 
     s3.upload_file(out_path, bucket_name, s3_key)
 
