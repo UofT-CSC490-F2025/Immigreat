@@ -41,35 +41,29 @@ def parse_and_store(law_name, xml_url):
             texts = [t.strip() for t in elem.itertext() if t.strip()]
         return " ".join(texts)
 
-    def process_element(elem, parent_number="", parent_heading=""):
+    def process_element(elem, parent_number="", parent_heading="", unlabeled_count=[0]):
         """Recursively process sections, subsections, paragraphs."""
         number = elem.findtext(num_tag, default=None, namespaces=ns)
+        heading = (
+            elem.findtext(heading_tag, default=None, namespaces=ns)
+            or elem.findtext("Margnote", default=None, namespaces=ns)
+        )
 
-        # Try multiple heading sources, namespace-aware if needed
-        heading = None
-        if ns:
-            heading = (
-                elem.findtext(heading_tag, default=None, namespaces=ns)
-                or elem.findtext("ns:Margnote", default=None, namespaces=ns)
-            )
-        if not heading:  # fallback if no ns or not found
-            heading = (
-                elem.findtext("Heading", default=None)
-                or elem.findtext("Margnote", default=None)
-            )
 
         # Build section number
         if number:
             number = f"{parent_number}.{number}" if parent_number else number
         else:
-            number = parent_number if parent_number else None
+            # generate synthetic number if missing
+            unlabeled_count[0] += 1
+            number = f"{parent_number}-unlabeled-{unlabeled_count[0]}" if parent_number else f"unlabeled-{unlabeled_count[0]}"
 
         # Build heading
         if not heading:
-            if number:
-                heading = f"{law_name} Section {number}"
+            if parent_heading:
+                heading = f"{parent_heading} (continuation)"
             else:
-                heading = f"{law_name} Section (unlabeled)"
+                heading = f"{law_name} Section {number} (unlabeled)"
 
         content = extract_text(elem).strip()
 
@@ -77,7 +71,7 @@ def parse_and_store(law_name, xml_url):
             docs.append({
                 "id": str(uuid.uuid4()),
                 "title": heading,
-                "section": number or "N/A",
+                "section": number,
                 "content": content,
                 "source": law_name,
                 "date_published": None,
@@ -87,7 +81,7 @@ def parse_and_store(law_name, xml_url):
 
         # Recursively process subsections
         for sub_elem in elem.findall(subsection_tag, ns):
-            process_element(sub_elem, parent_number=number or "", parent_heading=heading)
+            process_element(sub_elem, parent_number=number or "", parent_heading=heading, unlabeled_count=unlabeled_count)
 
         # Find all top-level sections and process recursively
     sections = root.findall(".//" + section_tag, ns)  # recursive search
