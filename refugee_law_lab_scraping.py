@@ -3,7 +3,6 @@ import uuid
 from datetime import date
 from datasets import load_dataset
 import boto3
-from langdetect import detect, DetectorFactory
 
 import json
 import uuid
