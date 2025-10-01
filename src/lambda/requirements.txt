@@ -1,1 +1,5 @@
-psycopg2-binary==2.9.9
+# AWS SDK
+boto3>=1.28.0
+
+# Database
+psycopg2-binary>=2.9.6
