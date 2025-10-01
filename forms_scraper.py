@@ -2,7 +2,7 @@ import requests
 from pypdf import PdfReader
 import io
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 import uuid
@@ -10,12 +10,17 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import hashlib
 import traceback
+import boto3
+
+webpages = [
+        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5710.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm1295.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5583.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5709.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5686.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5708.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5557.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0001.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0002.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0003.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm1344.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5533.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5257.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5645.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5409.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5476.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5475.html"
+    ]
 
 # ----------------------
 # Utilities
 # ----------------------
 def now_date() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 def make_hash(entry: dict) -> str:
     """Create a stable hash for deduplication from title, section, content, source."""
@@ -432,15 +437,15 @@ def extract_fields_from_webpages(page_urls: list, output_file: str = "all_forms.
         json.dump(saved, f, ensure_ascii=False, indent=2)
 
     print(f"✅ Done. Total entries saved in {output_file}: {len(saved)}")
+    # ---------- UPLOAD TO S3 ----------
+    s3 = boto3.client("s3")
+
+    bucket_name = "raw-immigreation-documents"
+    s3_key = "forms_scraped_data.json"  # path inside S3 bucket
+
+    s3.upload_file(output_file, bucket_name, s3_key)
+
+    print(f"Uploaded {output_file} to s3://{bucket_name}/{s3_key}")
     return saved
 
-# ----------------------
-# Example usage
-# ----------------------
-if __name__ == "__main__":
-    webpages = [
-        "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5710.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm1295.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5583.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5709.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5686.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5708.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5557.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0001.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0002.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/cit0003.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm1344.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5533.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5257.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5645.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5409.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5476.html", "https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/imm5475.html"
-    ]
-
-    # Provide multiple keywords (matching href or anchor text if prefer_text_keyword True)
-    extract_fields_from_webpages(webpages, "all_forms.json", pdf_keywords=["imm", "cit"], prefer_text_keyword=True)
+extract_fields_from_webpages(webpages, "forms_scraped_data.json", pdf_keywords=["imm", "cit"], prefer_text_keyword=True)
