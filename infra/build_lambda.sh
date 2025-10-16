@@ -1,26 +1,25 @@
 #!/bin/bash
 set -e
 
-SRC_DIR="$1"
-OUTPUT_DIR="$2"
+# Variables
+REGION="us-east-1"
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+ECR_REPO_NAME="immigreat-lambda-repo"
+IMAGE_TAG="latest"
+SRC_DIR="../src/lambda"
 
-# Create output directory
-mkdir -p "$OUTPUT_DIR"
+# ECR Login
+aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
 
-# Build using Docker
-docker run --rm \
-  -v "$SRC_DIR":/src:ro \
-  -v "$OUTPUT_DIR":/output \
-  --entrypoint /bin/bash \
-  public.ecr.aws/lambda/python:3.11 \
-  -c '
-    rm -rf /output/* && \
-    pip install --platform manylinux2014_x86_64 \
-                --implementation cp \
-                --python-version 3.11 \
-                --only-binary=:all: \
-                --upgrade \
-                -r /src/requirements.txt \
-                -t /output/ && \
-    cp /src/*.py /output/
-  '
+# Build with explicit output format for Lambda compatibility
+docker buildx build \
+  --platform linux/arm64 \
+  --output type=docker \
+  --provenance=false \
+  --sbom=false \
+  -t $ECR_REPO_NAME:$IMAGE_TAG \
+  $SRC_DIR
+
+# Tag and push
+docker tag $ECR_REPO_NAME:$IMAGE_TAG $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO_NAME:$IMAGE_TAG
+docker push $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$ECR_REPO_NAME:$IMAGE_TAG

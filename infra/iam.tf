@@ -50,6 +50,11 @@ resource "aws_iam_role" "lambda_role" {
     Environment = "dev"
   }
 }
+resource "aws_iam_role_policy_attachment" "ecr_read_only" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
 # Lambda policy
 resource "aws_iam_role_policy" "lambda_policy" {
   name = "sample-lambda-policy"

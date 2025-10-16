@@ -48,7 +48,7 @@ resource "aws_internet_gateway" "main" {
   }
 }
 
-# Subnets (at least 2 for Aurora)
+
 resource "aws_subnet" "private_1" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.1.0/24"
@@ -93,7 +93,7 @@ resource "aws_security_group" "postgres" {
     from_port   = 5432
     to_port     = 5432
     protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr] # allow connections from within your VPC CIDR
+    cidr_blocks = [var.vpc_cidr]
     description = "PostgreSQL access from VPC"
   }
 
@@ -113,7 +113,7 @@ resource "aws_security_group" "postgres" {
 
 
 data "aws_vpc_endpoint_service" "bedrock" {
-  service = "bedrock-runtime"
+  service_name = "com.amazonaws.us-east-1.bedrock-runtime"
 }
 
 resource "aws_security_group" "vpc_endpoints" {
@@ -146,7 +146,7 @@ resource "aws_vpc_endpoint" "bedrock_runtime" {
   vpc_id              = aws_vpc.main.id
   service_name        = data.aws_vpc_endpoint_service.bedrock.service_name
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.private_2.id]
+  subnet_ids          = [aws_subnet.private_1.id, aws_subnet.private_2.id]
   security_group_ids  = [aws_security_group.vpc_endpoints.id]
   
   private_dns_enabled = true
@@ -172,7 +172,7 @@ resource "aws_vpc_endpoint" "secretsmanager" {
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.private_2.id]
+  subnet_ids          = [aws_subnet.private_1.id, aws_subnet.private_2.id]
   security_group_ids  = [aws_security_group.vpc_endpoints.id]
   
   private_dns_enabled = true

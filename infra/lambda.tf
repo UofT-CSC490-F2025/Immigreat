@@ -1,37 +1,16 @@
-resource "null_resource" "build_lambda" {
-  triggers = {
-    requirements = filemd5("${path.module}/../src/lambda/requirements.txt")
-    code         = filemd5("${path.module}/../src/lambda/sample.py")
-  }
-
-  provisioner "local-exec" {
-    command = "chmod +x ${path.module}/build_lambda.sh && ${path.module}/build_lambda.sh ${abspath(path.module)}/../src/lambda ${abspath(path.module)}/../build/lambda"
-  }
-}
-
-
-data "archive_file" "lambda_zip" {
-  type        = "zip"
-  source_dir  = "${path.module}/../build/lambda"
-  output_path = "${path.module}/../build/sample.zip"
-  
-  depends_on = [null_resource.build_lambda]
-}
-
 resource "aws_lambda_function" "sample" {
   function_name    = "sample-function"
   role            = aws_iam_role.lambda_role.arn
-  handler         = "sample.handler"
-  runtime         = "python3.11"
   
-  filename         = data.archive_file.lambda_zip.output_path
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
 
   timeout         = var.lambda_timeout
   memory_size     = var.lambda_memory
 
+  architectures = ["arm64"]
   vpc_config {
-    subnet_ids         = [aws_subnet.private_2.id]
+    subnet_ids         = [aws_subnet.private_1.id, aws_subnet.private_2.id]
     security_group_ids = [aws_security_group.lambda.id]
   }
 
