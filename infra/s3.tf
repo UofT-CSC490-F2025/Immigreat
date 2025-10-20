@@ -19,11 +19,11 @@ resource "aws_s3_bucket_public_access_block" "documents_pab" {
 }
 
 
-resource "aws_s3_bucket_notification" "sample" {
+resource "aws_s3_bucket_notification" "data_ingestion" {
   bucket = aws_s3_bucket.immigration_documents.id
 
   lambda_function {
-    lambda_function_arn = aws_lambda_function.sample.arn
+    lambda_function_arn = aws_lambda_function.data_ingestion.arn
     events              = ["s3:ObjectCreated:*"]
     filter_prefix       = "documents/"
     filter_suffix       = ".json"

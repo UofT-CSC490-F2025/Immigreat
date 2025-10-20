@@ -1,5 +1,5 @@
-resource "aws_lambda_function" "sample" {
-  function_name    = "sample-function"
+resource "aws_lambda_function" "data_ingestion" {
+  function_name    = "data_ingestion-function"
   role            = aws_iam_role.lambda_role.arn
   
   package_type = "Image"
@@ -30,13 +30,13 @@ resource "aws_lambda_function" "sample" {
 resource "aws_lambda_permission" "allow_s3" {
   statement_id  = "AllowS3Invoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.sample.function_name
+  function_name = aws_lambda_function.data_ingestion.function_name
   principal     = "s3.amazonaws.com"
   source_arn    = aws_s3_bucket.immigration_documents.arn
 }
 
 resource "aws_cloudwatch_log_group" "lambda_logs" {
-  name              = "/aws/lambda/${aws_lambda_function.sample.function_name}"
+  name              = "/aws/lambda/${aws_lambda_function.data_ingestion.function_name}"
   retention_in_days = 7
 }
 
@@ -44,7 +44,7 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
   bucket = aws_s3_bucket.immigration_documents.id
 
   lambda_function {
-    lambda_function_arn = aws_lambda_function.sample.arn
+    lambda_function_arn = aws_lambda_function.data_ingestion.arn
     events              = ["s3:ObjectCreated:*"]
     filter_prefix       = "document/"
   }

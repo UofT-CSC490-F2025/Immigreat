@@ -1,5 +1,5 @@
 resource "aws_security_group" "lambda" {
-  name        = "sample-lambda-sg"
+  name        = "data_ingestion-lambda-sg"
   description = "Security group for Lambda function accessing pgvector"
   vpc_id      = aws_vpc.main.id
 
@@ -12,25 +12,25 @@ resource "aws_security_group" "lambda" {
   }
 
   tags = {
-    Name        = "sample-lambda-sg"
+    Name        = "data_ingestion-lambda-sg"
     Environment = "dev"
   }
 }
 
 
-resource "aws_security_group_rule" "aurora_allow_lambda" {
+resource "aws_security_group_rule" "allow_lambda" {
   type                     = "ingress"
   from_port                = 5432
   to_port                  = 5432
   protocol                 = "tcp"
   security_group_id        = aws_security_group.postgres.id
   source_security_group_id = aws_security_group.lambda.id
-  description              = "Allow Lambda to access Aurora PostgreSQL"
+  description              = "Allow Lambda to access PostgreSQL"
 }
 
 
 resource "aws_iam_role" "lambda_role" {
-  name = "sample-lambda-role"
+  name = "data_ingestion-lambda-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -46,7 +46,7 @@ resource "aws_iam_role" "lambda_role" {
   })
 
   tags = {
-    Name        = "sample-lambda-role"
+    Name        = "data_ingestion-lambda-role"
     Environment = "dev"
   }
 }
@@ -57,7 +57,7 @@ resource "aws_iam_role_policy_attachment" "ecr_read_only" {
 
 # Lambda policy
 resource "aws_iam_role_policy" "lambda_policy" {
-  name = "sample-lambda-policy"
+  name = "data_ingestion-lambda-policy"
   role = aws_iam_role.lambda_role.id
 
   policy = jsonencode({

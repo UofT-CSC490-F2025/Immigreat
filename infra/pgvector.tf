@@ -26,7 +26,7 @@ resource "aws_db_instance" "pgvector" {
   storage_type            = "gp2"
 
   engine                  = "postgres"
-  engine_version          = "16.3"
+  engine_version          = "16.8"
   instance_class          = "db.t4g.micro"
 
   username                = var.db_username
