@@ -10,7 +10,7 @@ resource "aws_lambda_function" "data_ingestion" {
 
   architectures = ["arm64"]
   vpc_config {
-    subnet_ids         = [aws_subnet.private_1.id, aws_subnet.private_2.id]
+    subnet_ids         = module.vpc.private_subnets
     security_group_ids = [aws_security_group.lambda.id]
   }
 

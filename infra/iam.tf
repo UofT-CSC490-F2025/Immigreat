@@ -1,7 +1,7 @@
 resource "aws_security_group" "lambda" {
   name        = "data_ingestion-lambda-sg"
   description = "Security group for Lambda function accessing pgvector"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = module.vpc.vpc_id
 
   egress {
     from_port   = 0

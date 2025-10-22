@@ -29,54 +29,31 @@ locals {
   }
 }
 
-resource "aws_vpc" "main" {
-  cidr_block           = var.vpc_cidr
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-
-  tags = {
-    Name = "pgvector-vpc"
-  }
-}
-
-# Internet Gateway
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-
-  tags = {
-    Name = "pgvector-igw"
-  }
-}
-
-
-resource "aws_subnet" "private_1" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
-  availability_zone = data.aws_availability_zones.available.names[0]
-
-  tags = {
-    Name = "pgvector-private-subnet-1"
-  }
-}
-
-resource "aws_subnet" "private_2" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = data.aws_availability_zones.available.names[1]
-
-  tags = {
-    Name = "pgvector-private-subnet-2"
-  }
-}
-
 data "aws_availability_zones" "available" {
   state = "available"
 }
 
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "5.5.3"
+
+  name = "${local.project_name}-vpc"
+  cidr = var.vpc_cidr
+
+  azs             = slice(data.aws_availability_zones.available.names, 0, 2)
+  private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
+  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
+
+  enable_nat_gateway   = true
+  single_nat_gateway   = true
+  enable_dns_hostnames = true
+
+  tags = local.common_tags
+}
 # DB Subnet Group
 resource "aws_db_subnet_group" "main" {
   name       = "pgvector-subnet-group"
-  subnet_ids = [aws_subnet.private_1.id, aws_subnet.private_2.id]
+  subnet_ids = module.vpc.private_subnets
 
   tags = {
     Name = "pgvector-db-subnet-group"
@@ -87,7 +64,7 @@ resource "aws_db_subnet_group" "main" {
 resource "aws_security_group" "postgres" {
   name        = "pgvector-postgres-sg"
   description = "Security group for pgvector RDS PostgreSQL instance"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = module.vpc.vpc_id
 
   ingress {
     from_port   = 5432
@@ -119,7 +96,7 @@ data "aws_vpc_endpoint_service" "bedrock" {
 resource "aws_security_group" "vpc_endpoints" {
   name        = "pgvector-vpc-endpoints-sg"
   description = "Security group for VPC endpoints"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = module.vpc.vpc_id
 
   ingress {
     from_port   = 443
@@ -143,10 +120,10 @@ resource "aws_security_group" "vpc_endpoints" {
 }
 
 resource "aws_vpc_endpoint" "bedrock_runtime" {
-  vpc_id              = aws_vpc.main.id
+  vpc_id              = module.vpc.vpc_id
   service_name        = data.aws_vpc_endpoint_service.bedrock.service_name
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.private_1.id, aws_subnet.private_2.id]
+  subnet_ids          = module.vpc.private_subnets
   security_group_ids  = [aws_security_group.vpc_endpoints.id]
   
   private_dns_enabled = true
@@ -157,11 +134,11 @@ resource "aws_vpc_endpoint" "bedrock_runtime" {
 }
 
 resource "aws_vpc_endpoint" "s3" {
-  vpc_id       = aws_vpc.main.id
-  service_name = "com.amazonaws.${var.aws_region}.s3"
+  vpc_id            = module.vpc.vpc_id
+  service_name      = "com.amazonaws.${var.aws_region}.s3"
   vpc_endpoint_type = "Gateway"
 
-  route_table_ids = [data.aws_route_table.main.id]
+  route_table_ids = module.vpc.private_route_table_ids
 
   tags = {
     Name = "S3 VPC Endpoint"
@@ -169,24 +146,15 @@ resource "aws_vpc_endpoint" "s3" {
 }
 
 resource "aws_vpc_endpoint" "secretsmanager" {
-  vpc_id              = aws_vpc.main.id
+  vpc_id              = module.vpc.vpc_id
   service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.private_1.id, aws_subnet.private_2.id]
+  subnet_ids          = module.vpc.private_subnets
   security_group_ids  = [aws_security_group.vpc_endpoints.id]
   
   private_dns_enabled = true
   
   tags = {
     Name = "Secrets Manager VPC Endpoint"
-  }
-}
-
-data "aws_route_table" "main" {
-  vpc_id = aws_vpc.main.id
-
-  filter {
-    name   = "association.main"
-    values = ["true"]
   }
 }
