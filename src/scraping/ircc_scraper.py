@@ -359,6 +359,3 @@ def scrape_all(urls, out_path=OUTPUT_FILE, crawl_subpages=CRAWL_SUBPAGES):
     print(f"Uploaded {out_path} to s3://{S3_BUCKET_NAME}/{S3_IRCC_DATA_KEY}")
 
     return all_records
-
-results = scrape_all(IRCC_URLS, out_path="ircc_scraped_data.json", crawl_subpages=True)
-print(f"Scraped {len(results)} records. Saved to ircc_scraped_data.json")

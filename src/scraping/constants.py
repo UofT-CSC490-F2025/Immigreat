@@ -74,7 +74,7 @@ IRCC_URLS = [
 # =====================
 
 # S3 bucket name for storing scraped data
-S3_BUCKET_NAME = "raw-immigreation-documents"  # Note: keeping original spelling for consistency
+S3_BUCKET_NAME = "raw-immigreation-documents"
 
 # S3 file keys (paths within the bucket)
 S3_FORMS_DATA_KEY = "forms_scraped_data.json"

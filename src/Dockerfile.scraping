@@ -3,6 +3,6 @@ FROM public.ecr.aws/lambda/python:3.11-arm64
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY data_ingestion.py .
+COPY ./scraping ./scraping
 
-CMD ["data_ingestion.handler"]
+CMD ["scraping.scraping_lambda.handler"]

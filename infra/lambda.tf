@@ -1,9 +1,9 @@
 resource "aws_lambda_function" "data_ingestion" {
-  function_name    = "data_ingestion-function"
-  role            = aws_iam_role.lambda_role.arn
-  
+  function_name = "data_ingestion-function"
+  role          = aws_iam_role.lambda_role.arn
+
   package_type = "Image"
-  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:ingest-latest"
 
   timeout         = var.lambda_timeout
   memory_size     = var.lambda_memory
@@ -27,6 +27,27 @@ resource "aws_lambda_function" "data_ingestion" {
   }
 }
 
+resource "aws_lambda_function" "ircc_scraping" {
+  function_name = "ircc_scraping-function"
+  role          = aws_iam_role.lambda_role.arn
+
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:scraping-latest"
+
+  timeout     = var.lambda_timeout
+  memory_size = var.lambda_memory
+
+  architectures = ["arm64"]
+
+  environment {
+    variables = {
+      SCRAPE_DEFAULT_OUTPUT = "ircc_scraped_data.json"
+      TARGET_S3_BUCKET      = aws_s3_bucket.immigration_documents.id
+      TARGET_S3_KEY         = "ircc_scraped_data.json"
+    }
+  }
+}
+
 resource "aws_lambda_permission" "allow_s3" {
   statement_id  = "AllowS3Invoke"
   action        = "lambda:InvokeFunction"
@@ -37,6 +58,11 @@ resource "aws_lambda_permission" "allow_s3" {
 
 resource "aws_cloudwatch_log_group" "lambda_logs" {
   name              = "/aws/lambda/${aws_lambda_function.data_ingestion.function_name}"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "scraping_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.ircc_scraping.function_name}"
   retention_in_days = 7
 }
 
