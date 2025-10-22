@@ -1,54 +1,49 @@
 import json
 import os
-from typing import List, Dict
 from uuid import uuid4
-import tiktoken
-from openai import OpenAI
+from typing import List
 import chromadb
 from chromadb.config import Settings
+from sentence_transformers import SentenceTransformer
 
-# Initialize OpenAI and Chroma clients
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Initialize Chroma client
 chroma_client = chromadb.Client(Settings(persist_directory="./immigration_rag_db"))
-
-# Create or get a collection (our vector index)
 collection = chroma_client.get_or_create_collection(name="immigration_sections")
 
 # -----------------------------
-# Load data
+# Load local embedding model
 # -----------------------------
-with open("irpa_data.json", "r", encoding="utf-8") as f:
+# You can change this to 'intfloat/e5-base-v2' or 'all-MiniLM-L6-v2' for faster performance
+embedding_model = SentenceTransformer('BAAI/bge-large-en')
+
+# -----------------------------
+# Load your data
+# -----------------------------
+with open("irpr_irpa_data.json", "r", encoding="utf-8") as f:
     data = json.load(f)
 
 # -----------------------------
 # Helper: Chunk text
 # -----------------------------
-def chunk_text(text: str, max_tokens: int = 500, overlap: int = 50) -> List[str]:
-    """Split text into overlapping chunks using token count."""
-    tokenizer = tiktoken.get_encoding("cl100k_base")
-    tokens = tokenizer.encode(text)
-
+def chunk_text(text: str, max_length: int = 500, overlap: int = 50) -> List[str]:
+    """Split text into overlapping chunks by words."""
+    words = text.split()
     chunks = []
     start = 0
-    while start < len(tokens):
-        end = start + max_tokens
-        chunk = tokens[start:end]
-        chunk_text = tokenizer.decode(chunk)
-        chunks.append(chunk_text)
-        start += max_tokens - overlap
-
+    while start < len(words):
+        end = min(start + max_length, len(words))
+        chunk = " ".join(words[start:end])
+        chunks.append(chunk)
+        start += max_length - overlap
     return chunks
 
 # -----------------------------
-# Helper: Create embeddings
+# Helper: Embed text locally
 # -----------------------------
 def embed_texts(texts: List[str]) -> List[List[float]]:
-    """Create embeddings for a list of texts using OpenAI API."""
-    response = client.embeddings.create(
-        input=texts,
-        model="text-embedding-3-large"
-    )
-    return [d.embedding for d in response.data]
+    """Create embeddings using local SentenceTransformer model."""
+    embeddings = embedding_model.encode(texts, batch_size=32, show_progress_bar=True)
+    return [e.tolist() for e in embeddings]
 
 # -----------------------------
 # Process and store chunks
@@ -75,5 +70,5 @@ for entry in data:
             }]
         )
 
-print(f"Ingested {len(data)} sections into ChromaDB.")
-print(f"Database stored in ./immigration_rag_db")
+print(f"Ingested {len(data)} sections into ChromaDB using local embeddings.")
+print("Database stored in ./immigration_rag_db")
