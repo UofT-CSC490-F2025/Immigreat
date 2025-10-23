@@ -38,6 +38,9 @@ resource "aws_lambda_function" "ircc_scraping" {
   memory_size = var.lambda_memory
 
   architectures = ["arm64"]
+  image_config {
+    command = ["scraping.scraping_lambda.handler"]
+  }
 
   environment {
     variables = {

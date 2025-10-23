@@ -5,4 +5,5 @@ RUN pip install -r requirements.txt
 
 COPY ./scraping ./scraping
 
-CMD ["scraping.scraping_lambda.handler"]
+# No CMD — handler is defined per Lambda in Terraform
+
