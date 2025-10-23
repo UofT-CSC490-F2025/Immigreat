@@ -43,7 +43,7 @@ resource "aws_lambda_function" "ircc_scraping" {
     variables = {
       SCRAPE_DEFAULT_OUTPUT = "ircc_scraped_data.json"
       TARGET_S3_BUCKET      = aws_s3_bucket.immigration_documents.id
-      TARGET_S3_KEY         = "ircc_scraped_data.json"
+      TARGET_S3_KEY         = "document/ircc_scraped_data.json"
     }
   }
 }

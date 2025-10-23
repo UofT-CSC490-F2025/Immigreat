@@ -331,7 +331,18 @@ def scrape_page(url, session, crawl_subpages=False):
                 print(f"[WARNING] Subpage scrape failed {link}: {e}")
     return records
 
+def _resolve_output_path(out_path):
+    """Ensure the output path points to a writable location (/tmp for Lambda)."""
+    if not out_path:
+        out_path = OUTPUT_FILE
+    if not os.path.isabs(out_path):
+        out_path = os.path.join("/tmp", out_path)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    return out_path
+
+
 def scrape_all(urls, out_path=OUTPUT_FILE, crawl_subpages=CRAWL_SUBPAGES):
+    out_path = _resolve_output_path(out_path)
     session = requests.Session()
     all_records = []
     for url in urls:
