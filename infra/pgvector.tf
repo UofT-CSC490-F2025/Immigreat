@@ -1,26 +1,26 @@
 # PostgreSQL Parameter Group (for pgvector tuning)
 resource "aws_db_parameter_group" "pgvector" {
-  name   = "pgvector-instance-params"
-  family = "postgres16" # use postgres16, not aurora-postgresql
+  name   = "pgvector-instance-params-${local.environment}"
+  family = "postgres16" # use postgres16
 
   parameter {
     name  = "work_mem"
-    value = "65536" # 64MB (for dev)
+    value = "65536" # 64MB
   }
 
   parameter {
     name  = "maintenance_work_mem"
-    value = "524288" # 512MB (for dev)
+    value = "524288" # 512MB
   }
 
   tags = {
-    Name = "pgvector-instance-parameter-group"
+    Name = "pgvector-instance-parameter-group-${local.environment}"
   }
 }
 
 # RDS PostgreSQL Instance (smallest size for testing)
 resource "aws_db_instance" "pgvector" {
-  identifier              = "pgvector-postgres"
+  identifier              = "pgvector-postgres-${local.environment}"
   allocated_storage       = 20
   max_allocated_storage   = 100
   storage_type            = "gp2"
@@ -46,8 +46,8 @@ resource "aws_db_instance" "pgvector" {
   deletion_protection     = false
 
   tags = {
-    Name        = "pgvector-postgres-instance"
-    Environment = "dev"
+    Name        = "pgvector-postgres-instance-${local.environment}"
+    Environment = local.environment
   }
 }
 

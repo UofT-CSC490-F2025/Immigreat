@@ -1,5 +1,5 @@
 resource "aws_s3_bucket" "immigration_documents" {
-  bucket = "${local.project_name}-documents-${random_string.suffix.result}"
+  bucket = "${local.project_name}-documents-${local.environment}-${random_string.suffix.result}"
 
   force_destroy = true
   

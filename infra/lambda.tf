@@ -1,5 +1,5 @@
 resource "aws_lambda_function" "data_ingestion" {
-  function_name = "data_ingestion-function"
+  function_name = "data_ingestion-function-${local.environment}"
   role          = aws_iam_role.lambda_role.arn
 
   package_type = "Image"
@@ -28,7 +28,7 @@ resource "aws_lambda_function" "data_ingestion" {
 }
 
 resource "aws_lambda_function" "ircc_scraping" {
-  function_name = "ircc_scraping-function"
+  function_name = "ircc_scraping-function-${local.environment}"
   role          = aws_iam_role.lambda_role.arn
 
   package_type = "Image"
@@ -60,12 +60,12 @@ resource "aws_lambda_permission" "allow_s3" {
 }
 
 resource "aws_cloudwatch_log_group" "lambda_logs" {
-  name              = "/aws/lambda/${aws_lambda_function.data_ingestion.function_name}"
+  name              = "/aws/lambda/${aws_lambda_function.data_ingestion.function_name}-${local.environment}"
   retention_in_days = 7
 }
 
 resource "aws_cloudwatch_log_group" "scraping_lambda_logs" {
-  name              = "/aws/lambda/${aws_lambda_function.ircc_scraping.function_name}"
+  name              = "/aws/lambda/${aws_lambda_function.ircc_scraping.function_name}-${local.environment}"
   retention_in_days = 7
 }
 

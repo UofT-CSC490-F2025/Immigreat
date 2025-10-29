@@ -1,4 +1,4 @@
-
 resource "aws_ecr_repository" "lambda_repo" {
-  name = "immigreat-lambda-repo"
+  name         = "immigreat-lambda-repo"
+  force_delete = true
 }

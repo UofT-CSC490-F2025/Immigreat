@@ -69,3 +69,9 @@ variable "max_parallel_workers" {
   type        = number
   default     = 2  # Conservative default for small instances
 }
+
+variable "environment" {
+  description = "Environment name (dev, prod)"
+  type        = string
+  default     = "dev"
+}

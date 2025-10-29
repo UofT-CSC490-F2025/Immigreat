@@ -1,5 +1,5 @@
 resource "aws_security_group" "lambda" {
-  name        = "data_ingestion-lambda-sg"
+  name        = "data_ingestion-lambda-sg-${local.environment}"
   description = "Security group for Lambda function accessing pgvector"
   vpc_id      = module.vpc.vpc_id
 
@@ -12,8 +12,8 @@ resource "aws_security_group" "lambda" {
   }
 
   tags = {
-    Name        = "data_ingestion-lambda-sg"
-    Environment = "dev"
+    Name        = "data_ingestion-lambda-sg-${local.environment}"
+    Environment = local.environment
   }
 }
 
@@ -30,7 +30,7 @@ resource "aws_security_group_rule" "allow_lambda" {
 
 
 resource "aws_iam_role" "lambda_role" {
-  name = "data_ingestion-lambda-role"
+  name = "data_ingestion-lambda-role-${local.environment}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -46,8 +46,8 @@ resource "aws_iam_role" "lambda_role" {
   })
 
   tags = {
-    Name        = "data_ingestion-lambda-role"
-    Environment = "dev"
+    Name        = "data_ingestion-lambda-role-${local.environment}"
+    Environment = local.environment
   }
 }
 resource "aws_iam_role_policy_attachment" "ecr_read_only" {
@@ -57,7 +57,7 @@ resource "aws_iam_role_policy_attachment" "ecr_read_only" {
 
 # Lambda policy
 resource "aws_iam_role_policy" "lambda_policy" {
-  name = "data_ingestion-lambda-policy"
+  name = "data_ingestion-lambda-policy-${local.environment}"
   role = aws_iam_role.lambda_role.id
 
   policy = jsonencode({

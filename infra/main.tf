@@ -20,7 +20,7 @@ resource "random_string" "suffix" {
 
 locals {
   project_name = "immigration-rag"
-  environment  = "dev"
+  environment  = var.environment
   
   common_tags = {
     Project     = local.project_name
