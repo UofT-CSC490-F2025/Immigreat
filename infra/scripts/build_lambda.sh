@@ -8,7 +8,7 @@ ECR_REPO_NAME="immigreat-lambda-repo"
 IMAGE_TAG="latest"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC_DIR="${SCRIPT_DIR}/../src"
+SRC_DIR="${SCRIPT_DIR}/../../src"
 INGEST_DOCKERFILE="${SRC_DIR}/Dockerfile.ingest"
 SCRAPING_DOCKERFILE="${SRC_DIR}/Dockerfile.scraping"
 

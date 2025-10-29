@@ -133,27 +133,27 @@ resource "aws_lambda_permission" "allow_s3" {
 }
 
 resource "aws_cloudwatch_log_group" "lambda_logs" {
-  name              = "/aws/lambda/${aws_lambda_function.data_ingestion.function_name}-${local.environment}"
+  name              = "/aws/lambda/${aws_lambda_function.data_ingestion.function_name}"
   retention_in_days = 7
 }
 
 resource "aws_cloudwatch_log_group" "scraping_lambda_logs" {
-  name              = "/aws/lambda/${aws_lambda_function.ircc_scraping.function_name}-${local.environment}"
+  name              = "/aws/lambda/${aws_lambda_function.ircc_scraping.function_name}"
   retention_in_days = 7
 }
 
 resource "aws_cloudwatch_log_group" "irpr_irpa_scraping_lambda_logs" {
-  name              = "/aws/lambda/${aws_lambda_function.irpr_irpa_scraping.function_name}-${local.environment}"
+  name              = "/aws/lambda/${aws_lambda_function.irpr_irpa_scraping.function_name}"
   retention_in_days = 7
 }
 
 resource "aws_cloudwatch_log_group" "refugee_law_lab_scraping_lambda_logs" {
-  name              = "/aws/lambda/${aws_lambda_function.refugee_law_lab_scraping.function_name}-${local.environment}"
+  name              = "/aws/lambda/${aws_lambda_function.refugee_law_lab_scraping.function_name}"
   retention_in_days = 7
 }
 
 resource "aws_cloudwatch_log_group" "forms_scraping_lambda_logs" {
-  name              = "/aws/lambda/${aws_lambda_function.forms_scraping.function_name}-${local.environment}"
+  name              = "/aws/lambda/${aws_lambda_function.forms_scraping.function_name}"
   retention_in_days = 7
 }
 
