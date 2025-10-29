@@ -39,7 +39,7 @@ resource "aws_lambda_function" "ircc_scraping" {
 
   architectures = ["arm64"]
   image_config {
-    command = ["scraping.scraping_lambda.handler"]
+    command = ["scraping.ircc_scraping_lambda.handler"]
   }
 
   environment {
@@ -51,6 +51,79 @@ resource "aws_lambda_function" "ircc_scraping" {
   }
 }
 
+# Add these resources after the existing aws_lambda_function.ircc_scraping resource
+
+resource "aws_lambda_function" "irpr_irpa_scraping" {
+  function_name = "irpr_irpa_scraping-function-${local.environment}"
+  role          = aws_iam_role.lambda_role.arn
+
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:scraping-latest"
+
+  timeout     = var.lambda_timeout
+  memory_size = var.lambda_memory
+
+  architectures = ["arm64"]
+  image_config {
+    command = ["scraping.irpr_irpa_scraping_lambda.handler"]
+  }
+
+  environment {
+    variables = {
+      SCRAPE_DEFAULT_OUTPUT = "irpr_irpa_data.json"
+      TARGET_S3_BUCKET      = aws_s3_bucket.immigration_documents.id
+      TARGET_S3_KEY         = "document/irpr_irpa_data.json"
+    }
+  }
+}
+
+resource "aws_lambda_function" "refugee_law_lab_scraping" {
+  function_name = "refugee_law_lab_scraping-function-${local.environment}"
+  role          = aws_iam_role.lambda_role.arn
+
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:scraping-latest"
+
+  timeout     = var.lambda_timeout
+  memory_size = var.lambda_memory
+
+  architectures = ["arm64"]
+  image_config {
+    command = ["scraping.refugee_law_scraping_lambda.handler"]
+  }
+
+  environment {
+    variables = {
+      SCRAPE_DEFAULT_OUTPUT = "refugeelawlab_data_en.json"
+      TARGET_S3_BUCKET      = aws_s3_bucket.immigration_documents.id
+      TARGET_S3_KEY         = "document/refugeelawlab_data_en.json"
+    }
+  }
+}
+
+resource "aws_lambda_function" "forms_scraping" {
+  function_name = "forms_scraping-function-${local.environment}"
+  role          = aws_iam_role.lambda_role.arn
+
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:scraping-latest"
+
+  timeout     = var.lambda_timeout
+  memory_size = var.lambda_memory
+
+  architectures = ["arm64"]
+  image_config {
+    command = ["scraping.forms_scraping_lambda.handler"]
+  }
+
+  environment {
+    variables = {
+      SCRAPE_DEFAULT_OUTPUT = "forms_scraped_data.json"
+      TARGET_S3_BUCKET      = aws_s3_bucket.immigration_documents.id
+      TARGET_S3_KEY         = "document/forms_scraped_data.json"
+    }
+  }
+}
 resource "aws_lambda_permission" "allow_s3" {
   statement_id  = "AllowS3Invoke"
   action        = "lambda:InvokeFunction"
@@ -68,6 +141,22 @@ resource "aws_cloudwatch_log_group" "scraping_lambda_logs" {
   name              = "/aws/lambda/${aws_lambda_function.ircc_scraping.function_name}-${local.environment}"
   retention_in_days = 7
 }
+
+resource "aws_cloudwatch_log_group" "irpr_irpa_scraping_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.irpr_irpa_scraping.function_name}-${local.environment}"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "refugee_law_lab_scraping_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.refugee_law_lab_scraping.function_name}-${local.environment}"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "forms_scraping_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.forms_scraping.function_name}-${local.environment}"
+  retention_in_days = 7
+}
+
 
 resource "aws_s3_bucket_notification" "bucket_notification" {
   bucket = aws_s3_bucket.immigration_documents.id

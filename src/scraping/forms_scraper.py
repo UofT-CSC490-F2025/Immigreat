@@ -454,4 +454,3 @@ def extract_fields_from_webpages(page_urls: list, output_file: str = "all_forms.
     print(f"Uploaded {output_file} to s3://{S3_BUCKET_NAME}/{S3_FORMS_DATA_KEY}")
     return saved
 
-extract_fields_from_webpages(FORMS_WEBPAGES, DEFAULT_FORMS_OUTPUT, pdf_keywords=PDF_KEYWORDS, prefer_text_keyword=True)
