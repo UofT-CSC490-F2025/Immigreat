@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from dateutil.parser import parse as dateparse
 import urllib.robotparser as robotparser
 import boto3
+from .utils import resolve_output_path
 
 from .constants import (
     IRCC_URLS,
@@ -330,19 +331,9 @@ def scrape_page(url, visited, session, crawl_subpages=False):
                 print(f"[WARNING] Subpage scrape failed {link}: {e}")
     return records
 
-def _resolve_output_path(out_path):
-    """Ensure the output path points to a writable location (/tmp for Lambda)."""
-    if not out_path:
-        out_path = OUTPUT_FILE
-    if not os.path.isabs(out_path):
-        out_path = os.path.join("/tmp", out_path)
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    return out_path
-
-
 def scrape_all(urls, out_path=OUTPUT_FILE, crawl_subpages=CRAWL_SUBPAGES):
     visited = set()
-    out_path = _resolve_output_path(out_path)
+    out_path = resolve_output_path(out_path)
     session = requests.Session()
     all_records = []
     for url in urls:
@@ -357,9 +348,9 @@ def scrape_all(urls, out_path=OUTPUT_FILE, crawl_subpages=CRAWL_SUBPAGES):
         except Exception as e:
             print(f"[ERROR] Failed to scrape {url}: {e}")
     # write JSON Lines
+    # write JSON array (not JSON Lines)
     with open(out_path, "w", encoding="utf-8") as fh:
-        for r in all_records:
-            fh.write(json.dumps(r, ensure_ascii=False, indent=2) + "\n")
+        json.dump(all_records, fh, ensure_ascii=False, indent=2)
     print(f"[INFO] Saved {len(all_records)} records to {out_path}")
 
     # ---------- UPLOAD TO S3 ----------

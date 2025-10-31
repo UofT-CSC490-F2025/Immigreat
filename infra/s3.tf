@@ -25,7 +25,7 @@ resource "aws_s3_bucket_notification" "data_ingestion" {
   lambda_function {
     lambda_function_arn = aws_lambda_function.data_ingestion.arn
     events              = ["s3:ObjectCreated:*"]
-    filter_prefix       = "documents/"
+    filter_prefix       = "document/"
     filter_suffix       = ".json"
   }
 

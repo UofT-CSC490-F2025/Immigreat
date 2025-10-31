@@ -1,11 +1,11 @@
 import json
 import uuid
 from datetime import date
-from huggingface_hub import hf_hub_download
-import pyarrow.parquet as pq
-import pandas as pd
+import requests
 import boto3
-
+import os
+import time
+from .utils import resolve_output_path 
 from .constants import (
     REFUGEE_LAW_LAB_DATASETS,
     S3_BUCKET_NAME,
@@ -13,19 +13,75 @@ from .constants import (
     DEFAULT_REFUGEE_LAW_LAB_OUTPUT
 )
 
+TARGET_S3_BUCKET = os.getenv("TARGET_S3_BUCKET", S3_BUCKET_NAME)
+TARGET_S3_KEY = os.getenv("TARGET_S3_KEY", S3_REFUGEE_LAW_LAB_DATA_KEY)
+
 def load_hf_dataset_as_dict(repo_id, subset, split="train"):
-    """Download and load a Hugging Face dataset using huggingface_hub."""
-    # Download the parquet file for the specific subset
-    file_path = hf_hub_download(
-        repo_id=repo_id,
-        filename=f"{subset}/{split}-00000-of-00001.parquet",  # Common HF pattern
-        repo_type="dataset"
-    )
+    """
+    Load a Hugging Face dataset using the Datasets Server API.
+    This uses HF's public API - no authentication or complex libraries needed.
+    """
+    # Use Hugging Face's Datasets Server API to get the data
+    # This API provides paginated access to datasets without downloading files
+    api_url = f"https://datasets-server.huggingface.co/rows"
     
-    # Read with pyarrow and convert to list of dicts
-    table = pq.read_table(file_path)
-    df = table.to_pandas()
-    return df.to_dict('records')
+    all_rows = []
+    offset = 0
+    limit = 100  # rows per request
+    
+    while True:
+        params = {
+            "dataset": repo_id,
+            "config": subset,
+            "split": split,
+            "offset": offset,
+            "length": limit
+        }
+        
+        print(f"Fetching rows {offset} to {offset + limit} from {subset}...")
+        max_retries = 5
+        retry_delay = 2  # Start with 2 seconds
+        
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(api_url, params=params, timeout=30)
+                response.raise_for_status()
+                break  # Success, exit retry loop
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:  # Rate limit
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                        print(f"Rate limited. Waiting {wait_time}s before retry {attempt + 1}/{max_retries}...")
+                        time.sleep(wait_time)
+                    else:
+                        print(f"Failed after {max_retries} retries due to rate limiting")
+                        raise
+                else:
+                    raise  # Re-raise non-429 errors
+        
+        data = response.json()
+        
+        if "rows" not in data or not data["rows"]:
+            break
+            
+        # Extract the row data
+        for row_obj in data["rows"]:
+            all_rows.append(row_obj["row"])
+        
+        # Check if we've fetched all rows
+        if len(data["rows"]) < limit:
+            break
+
+        offset += limit
+        
+        # Safety limit to avoid infinite loops (adjust as needed)
+        if offset > 10000:
+            print(f"Warning: Hit safety limit at {offset} rows")
+            break
+    
+    print(f"Loaded {len(all_rows)} total rows from {subset}")
+    return all_rows
+
 
 def transform_record(record):
     """Convert one record to your schema with language filtering."""
@@ -62,6 +118,9 @@ def scrape_refugee_law_lab(output_file=None, upload_to_s3=True):
     if output_file is None:
         output_file = DEFAULT_REFUGEE_LAW_LAB_OUTPUT
     
+    # Resolve output path to /tmp for Lambda
+    output_file = resolve_output_path(output_file)
+    
     # Load both RAD and RPD datasets
     all_records = []
 
@@ -83,7 +142,7 @@ def scrape_refugee_law_lab(output_file=None, upload_to_s3=True):
     # Upload to S3
     if upload_to_s3:
         s3 = boto3.client("s3")
-        s3.upload_file(output_file, S3_BUCKET_NAME, S3_REFUGEE_LAW_LAB_DATA_KEY)
-        print(f"Uploaded {output_file} to s3://{S3_BUCKET_NAME}/{S3_REFUGEE_LAW_LAB_DATA_KEY}")
+        s3.upload_file(output_file, TARGET_S3_BUCKET, TARGET_S3_KEY)
+        print(f"Uploaded {output_file} to s3://{TARGET_S3_BUCKET}/{TARGET_S3_KEY}")
 
     return all_records

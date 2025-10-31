@@ -5,12 +5,17 @@ import json
 import boto3
 from datetime import date
 import uuid
+import os
+from .utils import resolve_output_path
 from .constants import (
     JUSTICE_XMLS,
     S3_BUCKET_NAME,
     S3_IRPR_IRPA_DATA_KEY,
     DEFAULT_IRPR_IRPA_OUTPUT
 )
+
+TARGET_S3_BUCKET = os.getenv("TARGET_S3_BUCKET", S3_BUCKET_NAME)
+TARGET_S3_KEY = os.getenv("TARGET_S3_KEY", S3_IRPR_IRPA_DATA_KEY)
 
 
 def extract_text(elem, text_tag, ns):
@@ -120,6 +125,8 @@ def scrape_irpr_irpa_laws(output_file=None, upload_to_s3=True):
     """
     if output_file is None:
         output_file = DEFAULT_IRPR_IRPA_OUTPUT
+
+    output_file = resolve_output_path(output_file)
     
     docs = []
 
@@ -139,7 +146,6 @@ def scrape_irpr_irpa_laws(output_file=None, upload_to_s3=True):
 
     if upload_to_s3:
         s3 = boto3.client("s3")
-        s3.upload_file(output_file, S3_BUCKET_NAME, S3_IRPR_IRPA_DATA_KEY)
-        print(f"Uploaded {output_file} to s3://{S3_BUCKET_NAME}/{S3_IRPR_IRPA_DATA_KEY}")
-
+        s3.upload_file(output_file, TARGET_S3_BUCKET, TARGET_S3_KEY)
+        print(f"Uploaded {output_file} to s3://{TARGET_S3_BUCKET}/{TARGET_S3_KEY}")
     return docs

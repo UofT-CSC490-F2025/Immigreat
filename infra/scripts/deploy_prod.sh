@@ -10,7 +10,7 @@ terraform apply -var-file=enviroments/prod.tfvars -target=aws_ecr_repository.lam
 
 # Stage 2: Build and push Docker images
 echo "🐳 Stage 2: Building and pushing Docker images..."
-./build_lambda.sh
+./scripts/build_lambda.sh
 
 # Stage 3: Deploy everything else
 echo "🚀 Stage 3: Deploying Lambda functions and remaining infrastructure..."
