@@ -1,11 +1,11 @@
 # --- Dependencies ---
+import os
 import re
 import time
 import json
 import uuid
 import hashlib
 import random
-import logging
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 
@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from dateutil.parser import parse as dateparse
 import urllib.robotparser as robotparser
 import boto3
+from .utils import resolve_output_path
 
 from .constants import (
     IRCC_URLS,
@@ -54,14 +55,13 @@ except Exception:
 
 # --- Configuration ---
 
-OUTPUT_FILE = "ircc_scrape.json"
+OUTPUT_FILE = os.getenv("SCRAPE_DEFAULT_OUTPUT", DEFAULT_IRCC_OUTPUT)
 CRAWL_SUBPAGES = True   # follow news/article links from listing pages
 MAX_SUBPAGE_PER_PAGE = 30
-LOG_LEVEL = logging.INFO
 
-# Setup logging
-logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s: %(message)s")
-VISITED = set()
+TARGET_S3_BUCKET = os.getenv("TARGET_S3_BUCKET", S3_BUCKET_NAME)
+TARGET_S3_KEY = os.getenv("TARGET_S3_KEY", S3_IRCC_DATA_KEY)
+S3_CLIENT = boto3.client("s3")
 
 # --- Helpers ---
 def read_robots(base_url, user_agent=USER_AGENT):
@@ -240,7 +240,7 @@ def fetch_html(url, session, use_playwright=True):
             html = render_with_playwright(url)
             return html
         except Exception as e:
-            logging.warning("Playwright render failed for %s: %s", url, e)
+            print(f"[WARNING] Playwright render failed for {url}: {e}")
     # last attempt: return requests text if available
     if r is not None:
         return r.text
@@ -290,11 +290,11 @@ def find_internal_article_links(soup, base_url, limit=MAX_SUBPAGE_PER_PAGE):
                 break
     return uniq
 
-def scrape_page(url, session, crawl_subpages=False):
+def scrape_page(url, visited, session, crawl_subpages=False):
     """Scrape a single page; returns list of records."""
-    logging.info("Scraping %s", url)
+    print(f"[INFO] Scraping {url}")
     if not allowed_by_robots(url):
-        logging.warning("Blocked by robots.txt: %s", url)
+        print(f"[WARNING] Blocked by robots.txt: {url}")
         return []
 
     html = fetch_html(url, session, use_playwright=True)
@@ -319,46 +319,50 @@ def scrape_page(url, session, crawl_subpages=False):
     # Crawl subpages if listing
     if crawl_subpages and is_listing_page(soup):
         article_links = find_internal_article_links(soup, url)
-        logging.info("Found %d article links on %s", len(article_links), url)
+        print(f"[INFO] Found {len(article_links)} article links on {url}")
         for link in article_links:
-            if link in VISITED:
+            if link in visited:
                 continue
-            VISITED.add(link)
+            visited.add(link)
             time.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
             try:
-                records += scrape_page(link, session, crawl_subpages=False)
+                records += scrape_page(link, visited, session, crawl_subpages=False)
             except Exception as e:
-                logging.warning("Subpage scrape failed %s: %s", link, e)
+                print(f"[WARNING] Subpage scrape failed {link}: {e}")
     return records
 
 def scrape_all(urls, out_path=OUTPUT_FILE, crawl_subpages=CRAWL_SUBPAGES):
+    visited = set()
+    out_path = resolve_output_path(out_path)
     session = requests.Session()
     all_records = []
     for url in urls:
-        if url in VISITED:
-            logging.debug("Already visited %s", url)
+        if url in visited:
+            print(f"[DEBUG] Already visited {url}")
             continue
-        VISITED.add(url)
+        visited.add(url)
         try:
             time.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
-            recs = scrape_page(url, session, crawl_subpages=crawl_subpages)
+            recs = scrape_page(url, visited, session, crawl_subpages=crawl_subpages)
             all_records.extend(recs)
         except Exception as e:
-            logging.error("Failed to scrape %s: %s", url, e)
+            print(f"[ERROR] Failed to scrape {url}: {e}")
     # write JSON Lines
+    # write JSON array (not JSON Lines)
     with open(out_path, "w", encoding="utf-8") as fh:
-        for r in all_records:
-            fh.write(json.dumps(r, ensure_ascii=False, indent=2) + "\n")
-    logging.info("Saved %d records to %s", len(all_records), out_path)
+        json.dump(all_records, fh, ensure_ascii=False, indent=2)
+    print(f"[INFO] Saved {len(all_records)} records to {out_path}")
 
     # ---------- UPLOAD TO S3 ----------
-    s3 = boto3.client("s3")
+    if not TARGET_S3_BUCKET or not TARGET_S3_KEY:
+        print(
+            "[WARNING] Skipping S3 upload because TARGET_S3_BUCKET or "
+            "TARGET_S3_KEY is not configured."
+        )
+        return all_records
 
-    s3.upload_file(out_path, S3_BUCKET_NAME, S3_IRCC_DATA_KEY)
+    S3_CLIENT.upload_file(out_path, TARGET_S3_BUCKET, TARGET_S3_KEY)
 
-    print(f"Uploaded {out_path} to s3://{S3_BUCKET_NAME}/{S3_IRCC_DATA_KEY}")
+    print(f"Uploaded {out_path} to s3://{TARGET_S3_BUCKET}/{TARGET_S3_KEY}")
 
     return all_records
-
-results = scrape_all(IRCC_URLS, out_path="ircc_scraped_data.json", crawl_subpages=True)
-print(f"Scraped {len(results)} records. Saved to ircc_scraped_data.json")

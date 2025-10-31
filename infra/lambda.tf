@@ -1,37 +1,16 @@
-resource "null_resource" "build_lambda" {
-  triggers = {
-    requirements = filemd5("${path.module}/../src/lambda/requirements.txt")
-    code         = filemd5("${path.module}/../src/lambda/sample.py")
-  }
+resource "aws_lambda_function" "data_ingestion" {
+  function_name = "data_ingestion-function-${local.environment}"
+  role          = aws_iam_role.lambda_role.arn
 
-  provisioner "local-exec" {
-    command = "chmod +x ${path.module}/build_lambda.sh && ${path.module}/build_lambda.sh ${abspath(path.module)}/../src/lambda ${abspath(path.module)}/../build/lambda"
-  }
-}
-
-
-data "archive_file" "lambda_zip" {
-  type        = "zip"
-  source_dir  = "${path.module}/../build/lambda"
-  output_path = "${path.module}/../build/sample.zip"
-  
-  depends_on = [null_resource.build_lambda]
-}
-
-resource "aws_lambda_function" "sample" {
-  function_name    = "sample-function"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "sample.handler"
-  runtime         = "python3.11"
-  
-  filename         = data.archive_file.lambda_zip.output_path
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:ingest-latest"
 
   timeout         = var.lambda_timeout
   memory_size     = var.lambda_memory
 
+  architectures = ["arm64"]
   vpc_config {
-    subnet_ids         = [aws_subnet.private_2.id]
+    subnet_ids         = module.vpc.private_subnets
     security_group_ids = [aws_security_group.lambda.id]
   }
 
@@ -48,24 +27,142 @@ resource "aws_lambda_function" "sample" {
   }
 }
 
+resource "aws_lambda_function" "ircc_scraping" {
+  function_name = "ircc_scraping-function-${local.environment}"
+  role          = aws_iam_role.lambda_role.arn
+
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:scraping-latest"
+
+  timeout     = var.lambda_timeout
+  memory_size = var.lambda_memory
+
+  architectures = ["arm64"]
+  image_config {
+    command = ["scraping.ircc_scraping_lambda.handler"]
+  }
+
+  environment {
+    variables = {
+      SCRAPE_DEFAULT_OUTPUT = "ircc_scraped_data.json"
+      TARGET_S3_BUCKET      = aws_s3_bucket.immigration_documents.id
+      TARGET_S3_KEY         = "document/ircc_scraped_data.json"
+    }
+  }
+}
+
+# Add these resources after the existing aws_lambda_function.ircc_scraping resource
+
+resource "aws_lambda_function" "irpr_irpa_scraping" {
+  function_name = "irpr_irpa_scraping-function-${local.environment}"
+  role          = aws_iam_role.lambda_role.arn
+
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:scraping-latest"
+
+  timeout     = var.lambda_timeout
+  memory_size = var.lambda_memory
+
+  architectures = ["arm64"]
+  image_config {
+    command = ["scraping.irpr_irpa_scraping_lambda.handler"]
+  }
+
+  environment {
+    variables = {
+      SCRAPE_DEFAULT_OUTPUT = "irpr_irpa_data.json"
+      TARGET_S3_BUCKET      = aws_s3_bucket.immigration_documents.id
+      TARGET_S3_KEY         = "document/irpr_irpa_data.json"
+    }
+  }
+}
+
+resource "aws_lambda_function" "refugee_law_lab_scraping" {
+  function_name = "refugee_law_lab_scraping-function-${local.environment}"
+  role          = aws_iam_role.lambda_role.arn
+
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:scraping-latest"
+
+  timeout     = var.lambda_timeout
+  memory_size = var.lambda_memory
+
+  architectures = ["arm64"]
+  image_config {
+    command = ["scraping.refugee_law_scraping_lambda.handler"]
+  }
+
+  environment {
+    variables = {
+      SCRAPE_DEFAULT_OUTPUT = "refugeelawlab_data_en.json"
+      TARGET_S3_BUCKET      = aws_s3_bucket.immigration_documents.id
+      TARGET_S3_KEY         = "document/refugeelawlab_data_en.json"
+    }
+  }
+}
+
+resource "aws_lambda_function" "forms_scraping" {
+  function_name = "forms_scraping-function-${local.environment}"
+  role          = aws_iam_role.lambda_role.arn
+
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:scraping-latest"
+
+  timeout     = var.lambda_timeout
+  memory_size = var.lambda_memory
+
+  architectures = ["arm64"]
+  image_config {
+    command = ["scraping.forms_scraping_lambda.handler"]
+  }
+
+  environment {
+    variables = {
+      SCRAPE_DEFAULT_OUTPUT = "forms_scraped_data.json"
+      TARGET_S3_BUCKET      = aws_s3_bucket.immigration_documents.id
+      TARGET_S3_KEY         = "document/forms_scraped_data.json"
+    }
+  }
+}
 resource "aws_lambda_permission" "allow_s3" {
   statement_id  = "AllowS3Invoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.sample.function_name
+  function_name = aws_lambda_function.data_ingestion.function_name
   principal     = "s3.amazonaws.com"
   source_arn    = aws_s3_bucket.immigration_documents.arn
 }
 
 resource "aws_cloudwatch_log_group" "lambda_logs" {
-  name              = "/aws/lambda/${aws_lambda_function.sample.function_name}"
+  name              = "/aws/lambda/${aws_lambda_function.data_ingestion.function_name}"
   retention_in_days = 7
 }
+
+resource "aws_cloudwatch_log_group" "scraping_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.ircc_scraping.function_name}"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "irpr_irpa_scraping_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.irpr_irpa_scraping.function_name}"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "refugee_law_lab_scraping_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.refugee_law_lab_scraping.function_name}"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "forms_scraping_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.forms_scraping.function_name}"
+  retention_in_days = 7
+}
+
 
 resource "aws_s3_bucket_notification" "bucket_notification" {
   bucket = aws_s3_bucket.immigration_documents.id
 
   lambda_function {
-    lambda_function_arn = aws_lambda_function.sample.arn
+    lambda_function_arn = aws_lambda_function.data_ingestion.arn
     events              = ["s3:ObjectCreated:*"]
     filter_prefix       = "document/"
   }
