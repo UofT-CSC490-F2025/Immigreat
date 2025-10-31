@@ -1,12 +1,12 @@
 import os
 
-from scraping.constants import (
+from .constants import (
     JUSTICE_XMLS,
     S3_BUCKET_NAME,
     S3_IRPR_IRPA_DATA_KEY,
     DEFAULT_IRPR_IRPA_OUTPUT,
 )
-from scraping.irpr_irpa_scraper import scrape_irpr_irpa_laws
+from .irpr_irpa_scraper import scrape_irpr_irpa_laws
 
 
 DEFAULT_OUTPUT = os.getenv("SCRAPE_DEFAULT_OUTPUT", DEFAULT_IRPR_IRPA_OUTPUT)

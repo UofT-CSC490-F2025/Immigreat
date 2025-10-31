@@ -1,13 +1,13 @@
 import os
 
-from scraping.constants import (
+from .constants import (
     FORMS_WEBPAGES,
     S3_BUCKET_NAME,
     S3_FORMS_DATA_KEY,
     DEFAULT_FORMS_OUTPUT,
     PDF_KEYWORDS,
 )
-from scraping.forms_scraper import extract_fields_from_webpages
+from .forms_scraper import extract_fields_from_webpages
 
 
 DEFAULT_OUTPUT = os.getenv("SCRAPE_DEFAULT_OUTPUT", DEFAULT_FORMS_OUTPUT)

@@ -1,12 +1,12 @@
 import os
 
-from scraping.constants import (
+from .constants import (
     REFUGEE_LAW_LAB_DATASETS,
     S3_BUCKET_NAME,
     S3_REFUGEE_LAW_LAB_DATA_KEY,
     DEFAULT_REFUGEE_LAW_LAB_OUTPUT,
 )
-from scraping.refugee_law_lab_scraper import scrape_refugee_law_lab
+from .refugee_law_lab_scraper import scrape_refugee_law_lab
 
 
 DEFAULT_OUTPUT = os.getenv("SCRAPE_DEFAULT_OUTPUT", DEFAULT_REFUGEE_LAW_LAB_OUTPUT)

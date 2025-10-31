@@ -5,7 +5,7 @@ import json
 import boto3
 from datetime import date
 import uuid
-from constants import (
+from .constants import (
     JUSTICE_XMLS,
     S3_BUCKET_NAME,
     S3_IRPR_IRPA_DATA_KEY,

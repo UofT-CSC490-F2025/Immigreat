@@ -1,12 +1,12 @@
 import os
 
-from scraping.constants import (
+from .constants import (
     IRCC_URLS,
     S3_BUCKET_NAME,
     S3_IRCC_DATA_KEY,
     DEFAULT_IRCC_OUTPUT,
 )
-from scraping.ircc_scraper import scrape_all
+from .ircc_scraper import scrape_all
 
 
 DEFAULT_OUTPUT = os.getenv("SCRAPE_DEFAULT_OUTPUT", DEFAULT_IRCC_OUTPUT)

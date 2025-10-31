@@ -1,15 +1,31 @@
 import json
 import uuid
 from datetime import date
-from datasets import load_dataset
+from huggingface_hub import hf_hub_download
+import pyarrow.parquet as pq
+import pandas as pd
 import boto3
 
-from constants import (
+from .constants import (
     REFUGEE_LAW_LAB_DATASETS,
     S3_BUCKET_NAME,
     S3_REFUGEE_LAW_LAB_DATA_KEY,
     DEFAULT_REFUGEE_LAW_LAB_OUTPUT
 )
+
+def load_hf_dataset_as_dict(repo_id, subset, split="train"):
+    """Download and load a Hugging Face dataset using huggingface_hub."""
+    # Download the parquet file for the specific subset
+    file_path = hf_hub_download(
+        repo_id=repo_id,
+        filename=f"{subset}/{split}-00000-of-00001.parquet",  # Common HF pattern
+        repo_type="dataset"
+    )
+    
+    # Read with pyarrow and convert to list of dicts
+    table = pq.read_table(file_path)
+    df = table.to_pandas()
+    return df.to_dict('records')
 
 def transform_record(record):
     """Convert one record to your schema with language filtering."""
@@ -51,7 +67,7 @@ def scrape_refugee_law_lab(output_file=None, upload_to_s3=True):
 
     for subset in REFUGEE_LAW_LAB_DATASETS:
         print(f"Fetching {subset} dataset...")
-        ds = load_dataset("refugee-law-lab/canadian-legal-data", subset, split="train")
+        ds = load_hf_dataset_as_dict("refugee-law-lab/canadian-legal-data", subset, split="train")
         transformed = [transform_record(r) for r in ds]
         # Drop None (skipped French/empty)
         transformed = [r for r in transformed if r is not None]

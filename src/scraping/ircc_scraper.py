@@ -57,7 +57,6 @@ except Exception:
 OUTPUT_FILE = os.getenv("SCRAPE_DEFAULT_OUTPUT", DEFAULT_IRCC_OUTPUT)
 CRAWL_SUBPAGES = True   # follow news/article links from listing pages
 MAX_SUBPAGE_PER_PAGE = 30
-VISITED = set()
 
 TARGET_S3_BUCKET = os.getenv("TARGET_S3_BUCKET", S3_BUCKET_NAME)
 TARGET_S3_KEY = os.getenv("TARGET_S3_KEY", S3_IRCC_DATA_KEY)
@@ -290,7 +289,7 @@ def find_internal_article_links(soup, base_url, limit=MAX_SUBPAGE_PER_PAGE):
                 break
     return uniq
 
-def scrape_page(url, session, crawl_subpages=False):
+def scrape_page(url, visited, session, crawl_subpages=False):
     """Scrape a single page; returns list of records."""
     print(f"[INFO] Scraping {url}")
     if not allowed_by_robots(url):
@@ -321,12 +320,12 @@ def scrape_page(url, session, crawl_subpages=False):
         article_links = find_internal_article_links(soup, url)
         print(f"[INFO] Found {len(article_links)} article links on {url}")
         for link in article_links:
-            if link in VISITED:
+            if link in visited:
                 continue
-            VISITED.add(link)
+            visited.add(link)
             time.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
             try:
-                records += scrape_page(link, session, crawl_subpages=False)
+                records += scrape_page(link, visited, session, crawl_subpages=False)
             except Exception as e:
                 print(f"[WARNING] Subpage scrape failed {link}: {e}")
     return records
@@ -342,17 +341,18 @@ def _resolve_output_path(out_path):
 
 
 def scrape_all(urls, out_path=OUTPUT_FILE, crawl_subpages=CRAWL_SUBPAGES):
+    visited = set()
     out_path = _resolve_output_path(out_path)
     session = requests.Session()
     all_records = []
     for url in urls:
-        if url in VISITED:
+        if url in visited:
             print(f"[DEBUG] Already visited {url}")
             continue
-        VISITED.add(url)
+        visited.add(url)
         try:
             time.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
-            recs = scrape_page(url, session, crawl_subpages=crawl_subpages)
+            recs = scrape_page(url, visited, session, crawl_subpages=crawl_subpages)
             all_records.extend(recs)
         except Exception as e:
             print(f"[ERROR] Failed to scrape {url}: {e}")
