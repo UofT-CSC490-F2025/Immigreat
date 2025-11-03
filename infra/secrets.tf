@@ -1,10 +1,12 @@
 resource "aws_secretsmanager_secret" "pgvector_creds" {
-  name        = "pgvector/dev/db-credentials"
+  name        = "pgvector/${local.environment}/db-credentials"
   description = "pgvector RDS PostgreSQL credentials"
+  
+  recovery_window_in_days = 0
 
   tags = {
-    Name        = "pgvector-db-credentials"
-    Environment = "dev"
+    Name        = "pgvector-db-credentials-${local.environment}"
+    Environment = local.environment
   }
 }
 

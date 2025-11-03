@@ -11,6 +11,7 @@ from urllib.parse import urljoin
 import hashlib
 import traceback
 import boto3
+from scraping.utils import resolve_output_path
 
 from .constants import (
     FORMS_WEBPAGES,
@@ -23,7 +24,9 @@ from .constants import (
     DATE_FORMAT
 )
 
-
+# Read from environment variables (set by Lambda) or fall back to constants
+TARGET_S3_BUCKET = os.getenv("TARGET_S3_BUCKET", S3_BUCKET_NAME)
+TARGET_S3_KEY = os.getenv("TARGET_S3_KEY", S3_FORMS_DATA_KEY)
 
 # ----------------------
 # Utilities
@@ -413,6 +416,8 @@ def extract_fields_from_webpages(page_urls: list, output_file: str = "all_forms.
     saved = []
     existing_hashes = set()
 
+    output_file = resolve_output_path(output_file)
+
     # load existing file
     if os.path.exists(output_file):
         try:
@@ -441,17 +446,13 @@ def extract_fields_from_webpages(page_urls: list, output_file: str = "all_forms.
             continue
 
     # write out
-    os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(saved, f, ensure_ascii=False, indent=2)
 
     print(f"✅ Done. Total entries saved in {output_file}: {len(saved)}")
     # ---------- UPLOAD TO S3 ----------
     s3 = boto3.client("s3")
-
-    s3.upload_file(output_file, S3_BUCKET_NAME, S3_FORMS_DATA_KEY)
-
-    print(f"Uploaded {output_file} to s3://{S3_BUCKET_NAME}/{S3_FORMS_DATA_KEY}")
+    s3.upload_file(output_file, TARGET_S3_BUCKET, TARGET_S3_KEY)
+    print(f"Uploaded {output_file} to s3://{TARGET_S3_BUCKET}/{TARGET_S3_KEY}")
     return saved
 
-extract_fields_from_webpages(FORMS_WEBPAGES, DEFAULT_FORMS_OUTPUT, pdf_keywords=PDF_KEYWORDS, prefer_text_keyword=True)

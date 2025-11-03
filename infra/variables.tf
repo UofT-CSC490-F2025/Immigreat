@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "lambda_timeout" {
   description = "Lambda function timeout in seconds"
   type        = number
-  default     = 30
+  default     = 900
 }
 
 variable "lambda_memory" {
@@ -68,4 +68,10 @@ variable "max_parallel_workers" {
   description = "Maximum parallel workers for HNSW index builds (set to vCPUs - 2)"
   type        = number
   default     = 2  # Conservative default for small instances
+}
+
+variable "environment" {
+  description = "Environment name (dev, prod)"
+  type        = string
+  default     = "dev"
 }
