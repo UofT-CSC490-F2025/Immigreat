@@ -1,9 +1,7 @@
 terraform {
   backend "s3" {
-    bucket         = "terraform-state-bucket-immigreat"
-    key            = "terraform/terraform.tfstate"
-    region         = "us-east-1"
-    encrypt        = true
-    dynamodb_table = "terraform-state-lock"
+    # Backend configuration is provided via -backend-config flag
+    # Use: terraform init -backend-config=enviroments/dev-backend.hcl
+    # Or:  terraform init -backend-config=enviroments/prod-backend.hcl
   }
 }
