@@ -4,5 +4,4 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY data_ingestion.py .
-
-CMD ["data_ingestion.handler"]
+COPY model/ ./model/

@@ -52,15 +52,14 @@ def generate_answer(prompt):
     return json.loads(response["body"].read())["content"][0]["text"]
 
 def handler(event, context):
-    body = json.loads(event["body"])
-    user_query = body["query"]
+    user_query = event["query"]
 
     conn = get_db_connection()
     query_emb = get_embedding(user_query)
     chunks = retrieve_similar_chunks(conn, query_emb, k=5)
 
-    context = "\n\n".join([r[1] for r in chunks])
-    prompt = f"Context:\n{context}\n\nQuestion: {user_query}\nAnswer:"
+    query_context = "\n\n".join([r[1] for r in chunks])
+    prompt = f"Context:\n{query_context}\n\nQuestion: {user_query}\nAnswer:"
     answer = generate_answer(prompt)
 
     conn.close()

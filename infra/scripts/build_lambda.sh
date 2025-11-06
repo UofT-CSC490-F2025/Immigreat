@@ -9,14 +9,18 @@ IMAGE_TAG="latest"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_DIR="${SCRIPT_DIR}/../../src"
-INGEST_DOCKERFILE="${SRC_DIR}/Dockerfile.ingest"
+INGEST_DOCKERFILE="${SRC_DIR}/Dockerfile"
 SCRAPING_DOCKERFILE="${SRC_DIR}/Dockerfile.scraping"
 
 build_and_push() {
   local dockerfile="$1"
   local suffix="$2"
 
-  local local_image="${ECR_REPO_NAME}:${suffix}-${IMAGE_TAG}"
+  if [ -z "$suffix" ]; then
+    local local_image="${ECR_REPO_NAME}:${IMAGE_TAG}"
+  else
+    local local_image="${ECR_REPO_NAME}:${suffix}-${IMAGE_TAG}"
+  fi
   local remote_image="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${local_image}"
 
   echo "Building ${local_image} using ${dockerfile}"
@@ -39,5 +43,5 @@ build_and_push() {
 # ECR Login
 aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
 
-build_and_push "${INGEST_DOCKERFILE}" "ingest"
+build_and_push "${INGEST_DOCKERFILE}" ""
 build_and_push "${SCRAPING_DOCKERFILE}" "scraping"
