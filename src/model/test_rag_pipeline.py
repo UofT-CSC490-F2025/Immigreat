@@ -52,6 +52,7 @@ def generate_answer(prompt):
     return json.loads(response["body"].read())["content"][0]["text"]
 
 def handler(event, context):
+    print('Starting rag pipeline')
     user_query = event["query"]
 
     conn = get_db_connection()
