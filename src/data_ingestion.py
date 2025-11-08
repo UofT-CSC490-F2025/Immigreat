@@ -17,6 +17,7 @@ from psycopg2.extras import execute_values
 import os
 import re
 import uuid
+import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -275,43 +276,60 @@ def get_db_connection():
         raise
 
 
-def get_embedding(text: str) -> List[float]:
+def get_embedding(text: str, max_retries: int = 5, base_delay: float = 1.0) -> List[float]:
     """
-    Generate embedding vector using Amazon Titan Embeddings G1 - Text.
+    Generate embedding vector using Amazon Titan Embeddings G1 - Text with exponential backoff retry.
 
     Args:
         text: Input text to embed
+        max_retries: Maximum number of retry attempts
+        base_delay: Base delay in seconds for exponential backoff
 
     Returns:
         List of floats representing the embedding vector
     """
-    try:
-        # Truncate if too long (Titan has limits)
-        max_length = 8000
-        if len(text) > max_length:
-            text = text[:max_length]
-            print(f"Warning: Text truncated to {max_length} characters for embedding")
+    # Truncate if too long (Titan has limits)
+    max_length = 8000
+    if len(text) > max_length:
+        text = text[:max_length]
+        print(f"Warning: Text truncated to {max_length} characters for embedding")
 
-        # Titan Embeddings G1 - Text request format
-        request_body = json.dumps({
-            "inputText": text
-        })
+    # Titan Embeddings G1 - Text request format
+    request_body = json.dumps({
+        "inputText": text
+    })
 
-        response = bedrock_runtime.invoke_model(
-            modelId=EMBEDDING_MODEL,
-            contentType='application/json',
-            accept='application/json',
-            body=request_body
-        )
+    for attempt in range(max_retries):
+        try:
+            response = bedrock_runtime.invoke_model(
+                modelId=EMBEDDING_MODEL,
+                contentType='application/json',
+                accept='application/json',
+                body=request_body
+            )
 
-        response_body = json.loads(response['body'].read())
-        embedding = response_body['embedding']
+            response_body = json.loads(response['body'].read())
+            embedding = response_body['embedding']
 
-        return embedding
+            return embedding
 
-    except Exception as e:
-        print(f"Error generating embedding: {str(e)}")
-        raise
+        except Exception as e:
+            error_str = str(e)
+
+            # Check if it's a throttling error
+            if 'ThrottlingException' in error_str or 'Too many requests' in error_str:
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                    delay = base_delay * (2 ** attempt)
+                    print(f"ThrottlingException on attempt {attempt + 1}/{max_retries}. Retrying in {delay}s...")
+                    time.sleep(delay)
+                else:
+                    print(f"Error generating embedding after {max_retries} attempts: {error_str}")
+                    raise
+            else:
+                # Non-throttling error, raise immediately
+                print(f"Error generating embedding: {error_str}")
+                raise
 
 
 def initialize_database(cursor):
@@ -484,14 +502,27 @@ def handler(event, context):
 
         # ========== STAGE 5: GENERATE EMBEDDINGS ==========
         chunks_with_embeddings = []
+        total_chunks = len(all_chunks)
 
-        for chunk in all_chunks:
+        # Add delay between requests to avoid throttling (adjust as needed)
+        EMBEDDING_DELAY = 0.1  # 100ms between requests = ~10 requests/second
+
+        for idx, chunk in enumerate(all_chunks, 1):
             try:
                 content = chunk.get('content', '')
                 if content:
                     embedding = get_embedding(content)
                     chunk['embedding'] = embedding
                     chunks_with_embeddings.append(chunk)
+
+                    # Progress tracking
+                    if idx % 50 == 0 or idx == total_chunks:
+                        print(f"Progress: {idx}/{total_chunks} chunks embedded ({idx * 100 // total_chunks}%)")
+
+                    # Rate limiting: add small delay between requests
+                    if idx < total_chunks:  # Don't sleep after the last chunk
+                        time.sleep(EMBEDDING_DELAY)
+
             except Exception as e:
                 print(f"Error embedding chunk {chunk.get('id')}: {str(e)}")
                 continue
