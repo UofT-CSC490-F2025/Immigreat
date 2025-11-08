@@ -1,0 +1,12 @@
+FROM public.ecr.aws/lambda/python:3.11-arm64
+
+RUN pip install --no-cache-dir \
+    "numpy==1.26.4" \
+    "pandas>=2.2.0,<3.0.0" \
+    "pyarrow==14.0.2"
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY ./scraping ./scraping
+

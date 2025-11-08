@@ -1,4 +1,4 @@
-﻿.env
+.env
 *.env
 .venv/
 __pycache__/
@@ -6,3 +6,13 @@ __pycache__/
 data/
 *.sqlite
 .DS_Store
+*.zip
+build/immigration_laws.db
+immigration.db
+/venv/
+immigration_data.json
+immigration_decisions.json
+refugeelawlab_data_en.json
+irpr_irpa_data.json
+ircc_scraped_data.json
+secret.txt
