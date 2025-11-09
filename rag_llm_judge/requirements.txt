@@ -8,7 +8,6 @@ trl                         # HuggingFace TRL (for PPO/DPO)
 accelerate                  # For trainer acceleration
 peft                        # For parameter-efficient fine-tuning (optional)
 openai                      # If using GPT-4 or GPT-3.5 as judge
-sentence-transformers       # For embedding-based similarity
 nltk                        # For token-based metrics (BLEU, ROUGE)
 seaborn
 ipykernel

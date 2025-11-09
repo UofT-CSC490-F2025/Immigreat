@@ -17,6 +17,20 @@ def get_db_connection():
         user=creds['username'], password=creds['password']
     )
 
+def list_tables(conn):
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT table_schema, table_name
+        FROM information_schema.tables
+        WHERE table_type='BASE TABLE'
+          AND table_schema NOT IN ('pg_catalog', 'information_schema')
+        ORDER BY table_schema, table_name;
+    """)
+    tables = cur.fetchall()
+    cur.close()
+    return [{"schema": s, "table": t} for s, t in tables]
+
+
 def get_embedding(text: str):
     body = json.dumps({"inputText": text})
     resp = bedrock_runtime.invoke_model(
@@ -52,9 +66,16 @@ def generate_answer(prompt):
     return json.loads(response["body"].read())["content"][0]["text"]
 
 def handler(event, context):
-    user_query = event["query"]
-
     conn = get_db_connection()
+
+    tables = list_tables(conn)
+    conn.close()
+    return {
+        "statusCode": 200,
+        "body": json.dumps({"tables": tables})
+    }
+    
+    user_query = event["query"]
     query_emb = get_embedding(user_query)
     chunks = retrieve_similar_chunks(conn, query_emb, k=5)
 
