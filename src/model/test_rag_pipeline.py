@@ -53,6 +53,7 @@ def generate_answer(prompt):
 
 def handler(event, context):
     print('Starting rag pipeline')
+    print('test message')
     user_query = event["query"]
 
     conn = get_db_connection()
