@@ -4,3 +4,4 @@ requests>=2.31.0
 beautifulsoup4>=4.12.2
 python-dateutil>=2.9.0
 pypdf>=4.0.0
+sentence-transformers>=2.7.0
