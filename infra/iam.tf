@@ -103,6 +103,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Resource = [
           "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.titan-embed-text-v1",
           "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.titan-embed-text-v2:0",
+          "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0"
         ]
       },
       # VPC - Required for Lambda to access Aurora in VPC
