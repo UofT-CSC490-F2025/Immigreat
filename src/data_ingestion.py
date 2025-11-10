@@ -443,14 +443,14 @@ def insert_chunks(cursor, chunks: List[Dict[str, Any]]):
 
 def handler(event, context):
     """
-    Lambda handler with balanced processing pipeline.
+    Lambda handler with balanced processing pipeline and batch processing.
 
     Pipeline stages:
     1. Load raw data from S3
     2. Validate data quality
     3. Clean and normalize → save to /cleaned
     4. Chunk semantically → save to /curated
-    5. Generate embeddings
+    5. Generate embeddings (in batches to fit Lambda timeout)
     6. Store in pgvector
 
     Args:
@@ -462,6 +462,10 @@ def handler(event, context):
     """
     print(f"Received event: {json.dumps(event)}")
 
+    # Lambda timeout management - leave 60 seconds buffer
+    lambda_timeout_seconds = context.get_remaining_time_in_millis() / 1000 - 60
+    start_time = datetime.now()
+
     try:
         # Extract S3 information from event
         s3_event = event['Records'][0]['s3']
@@ -469,6 +473,7 @@ def handler(event, context):
         object_key = s3_event['object']['key']
 
         print(f"Processing file: s3://{bucket_name}/{object_key}")
+        print(f"Lambda timeout: {lambda_timeout_seconds}s available")
 
         # Extract date and filename for output paths
         date_path = datetime.now().strftime('%Y-%m-%d')
@@ -501,27 +506,93 @@ def handler(event, context):
         print(f"Created {len(all_chunks)} chunks from {len(cleaned_documents)} documents")
 
         # ========== STAGE 5: GENERATE EMBEDDINGS ==========
-        chunks_with_embeddings = []
 
-        for chunk in all_chunks:
+        # First, check which chunks already exist in database
+        connection = get_db_connection()
+        cursor = connection.cursor()
+        initialize_database(cursor)
+
+        # Get list of already processed chunk IDs
+        chunk_ids = [chunk.get('id') for chunk in all_chunks]
+        cursor.execute(
+            "SELECT id FROM documents WHERE id = ANY(%s)",
+            (chunk_ids,)
+        )
+        existing_ids = set(row[0] for row in cursor.fetchall())
+        print(f"Found {len(existing_ids)} chunks already in database, will skip those")
+
+        chunks_with_embeddings = []
+        total_chunks = len(all_chunks)
+        chunks_to_process = [c for c in all_chunks if c.get('id') not in existing_ids]
+
+        print(
+            f"Total chunks: {total_chunks}, Already processed: {len(existing_ids)}, To process: {len(chunks_to_process)}")
+
+        # Faster rate limiting to fit within Lambda timeout
+        # With these settings: ~800-900 chunks in 15 minutes
+        EMBEDDING_DELAY = 0.2  # 200ms = ~5 req/second (faster but still safe)
+        BATCH_SIZE = 25  # Process in batches of 25
+        BATCH_DELAY = 1.0  # 1s pause every 25 chunks
+
+        chunks_processed = 0
+
+        print(f"Starting embedding generation with timeout-aware processing...")
+        print(f"Rate limit: {EMBEDDING_DELAY}s delay, batch pause every {BATCH_SIZE} chunks")
+
+        for idx, chunk in enumerate(chunks_to_process, 1):
+            # Check if we're running out of time
+            elapsed = (datetime.now() - start_time).total_seconds()
+            remaining = lambda_timeout_seconds - elapsed
+
+            if remaining < 120:  # Less than 2 minutes left
+                print(f"⚠️  Approaching timeout! Processed {chunks_processed}/{len(chunks_to_process)} new chunks")
+                print(
+                    f"Total in DB: {len(existing_ids) + chunks_processed}, Remaining: {len(chunks_to_process) - chunks_processed}")
+                break
+
             try:
                 content = chunk.get('content', '')
                 if content:
                     embedding = get_embedding(content)
                     chunk['embedding'] = embedding
                     chunks_with_embeddings.append(chunk)
+                    chunks_processed += 1
+
+                    # Progress tracking
+                    if idx % 50 == 0 or idx == len(chunks_to_process):
+                        elapsed_min = elapsed / 60
+                        rate = chunks_processed / elapsed if elapsed > 0 else 0
+                        eta_min = (len(chunks_to_process) - chunks_processed) / rate / 60 if rate > 0 else 0
+                        total_in_db = len(existing_ids) + chunks_processed
+                        print(
+                            f"Progress: {idx}/{len(chunks_to_process)} new chunks ({idx * 100 // len(chunks_to_process) if len(chunks_to_process) > 0 else 0}%) | "
+                            f"Total in DB: {total_in_db}/{total_chunks} | "
+                            f"Rate: {rate:.1f} chunks/s | Elapsed: {elapsed_min:.1f}m | ETA: {eta_min:.1f}m")
+
+                    # Rate limiting strategy:
+                    if idx < len(chunks_to_process):
+                        # Normal delay between each request
+                        time.sleep(EMBEDDING_DELAY)
+
+                        # Extra delay every BATCH_SIZE chunks
+                        if idx % BATCH_SIZE == 0:
+                            time.sleep(BATCH_DELAY)
+
             except Exception as e:
-                print(f"Error embedding chunk {chunk.get('id')}: {str(e)}")
+                error_msg = str(e)
+                print(f"Error embedding chunk {chunk.get('id')}: {error_msg}")
+
+                # If still hitting throttling after retries, increase delay
+                if 'ThrottlingException' in error_msg or 'Too many requests' in error_msg:
+                    print(f"Still throttled after retries. Increasing delay...")
+                    time.sleep(5.0)  # Extra cooldown before continuing
+
                 continue
 
         print(f"Generated embeddings for {len(chunks_with_embeddings)} chunks")
 
         # ========== STAGE 6: STORE IN PGVECTOR ==========
-        connection = get_db_connection()
-        cursor = connection.cursor()
-
-        # Initialize database (creates tables if not exists)
-        initialize_database(cursor)
+        # Connection already established earlier for duplicate check
 
         # Insert chunks into database
         if chunks_with_embeddings:
@@ -533,21 +604,34 @@ def handler(event, context):
         connection.close()
 
         # ========== SUCCESS ==========
+        total_in_db = len(existing_ids) + len(chunks_with_embeddings)
         print("=" * 80)
-        print("PIPELINE COMPLETED SUCCESSFULLY")
+        print("PIPELINE COMPLETED")
         print(f"Raw documents: {len(documents)}")
         print(f"Valid documents: {len(valid_documents)}")
-        print(f"Total chunks: {len(all_chunks)}")
-        print(f"Chunks stored in pgvector: {len(chunks_with_embeddings)}")
+        print(f"Total chunks created: {len(all_chunks)}")
+        print(f"Already in database: {len(existing_ids)}")
+        print(f"Newly processed: {len(chunks_with_embeddings)}")
+        print(f"Total in database: {total_in_db}/{len(all_chunks)}")
+        if total_in_db < len(all_chunks):
+            remaining = len(all_chunks) - total_in_db
+            print(f"⚠️  Partial processing: {remaining} chunks remaining")
+            print(f"💡 File will be reprocessed automatically on next S3 trigger")
+        else:
+            print(f"✅ All chunks processed successfully!")
         print("=" * 80)
 
         return {
             "statusCode": 200,
             "body": json.dumps({
-                "message": "Pipeline completed successfully",
+                "message": "Pipeline completed" if total_in_db == len(
+                    all_chunks) else "Partial processing - will continue on retry",
                 "documents_processed": len(valid_documents),
                 "chunks_created": len(all_chunks),
-                "chunks_stored": len(chunks_with_embeddings)
+                "chunks_already_in_db": len(existing_ids),
+                "chunks_newly_stored": len(chunks_with_embeddings),
+                "chunks_total_in_db": total_in_db,
+                "chunks_remaining": len(all_chunks) - total_in_db
             })
         }
 
