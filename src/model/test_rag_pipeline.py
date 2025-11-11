@@ -41,7 +41,7 @@ def retrieve_similar_chunks(conn, embedding, k=5):
 
 def generate_answer(prompt):
     response = bedrock_runtime.invoke_model(
-        modelId="anthropic.claude-3-sonnet-20240229-v1:0",
+        modelId="anthropic.claude-3-5-sonnet-20240620-v1:0",
         contentType="application/json",
         accept="application/json",
         body=json.dumps({
@@ -52,7 +52,7 @@ def generate_answer(prompt):
     return json.loads(response["body"].read())["content"][0]["text"]
 
 def handler(event, context):
-    print('Starting rag pipeline')
+    print('Starting test rag pipeline')
     print('test message')
     user_query = event["query"]
 

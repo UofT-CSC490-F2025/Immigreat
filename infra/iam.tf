@@ -93,24 +93,21 @@ resource "aws_iam_role_policy" "lambda_policy" {
           aws_secretsmanager_secret.pgvector_creds.arn
         ]
       },
-      # Bedrock - Invoke embedding models
+      # Bedrock - Invoke foundation models
       {
         Effect = "Allow"
         Action = [
           "bedrock:InvokeModel",
           "bedrock:InvokeModelWithResponseStream"
         ]
-        Resource = [
-          "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.titan-embed-text-v1",
-          "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.titan-embed-text-v2:0",
-          "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0"
-        ]
+        Resource = "arn:aws:bedrock:*::foundation-model/*"
       },
       # AWS Marketplace - Required for Bedrock marketplace models
       {
         Effect = "Allow"
         Action = [
-          "aws-marketplace:ViewSubscriptions"
+          "aws-marketplace:ViewSubscriptions",
+          "aws-marketplace:Subscribe"
         ]
         Resource = "*"
       },

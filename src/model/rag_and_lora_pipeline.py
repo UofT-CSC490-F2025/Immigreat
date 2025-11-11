@@ -77,7 +77,7 @@ def generate_lora_answer(prompt):
 def generate_bedrock_answer(prompt):
     """Fallback to Claude or another Bedrock model if LoRA isn't available."""
     response = bedrock_client.invoke_model(
-        modelId="anthropic.claude-3-sonnet-20240229-v1:0",
+        modelId="anthropic.claude-3-5-sonnet-20240620-v1:0",
         contentType="application/json",
         accept="application/json",
         body=json.dumps({
