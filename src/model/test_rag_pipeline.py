@@ -11,6 +11,7 @@ EMBEDDING_MODEL = os.environ.get('BEDROCK_EMBEDDING_MODEL', 'amazon.titan-embed-
 # Make Claude model configurable via env; keep existing default if not set.
 CLAUDE_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'anthropic.claude-3-5-sonnet-20240620-v1:0')
 ANTHROPIC_VERSION = os.environ.get('ANTHROPIC_VERSION', 'bedrock-2023-05-31')
+DEBUG_BEDROCK_LOG = os.environ.get('DEBUG_BEDROCK_LOG', 'false').lower() in ('1', 'true', 'yes')
 
 def get_db_connection():
     secret = secretsmanager_client.get_secret_value(SecretId=PGVECTOR_SECRET_ARN)
@@ -70,6 +71,8 @@ def generate_answer(prompt: str) -> str:
             body=json.dumps(payload)
         )
         data = json.loads(response["body"].read())
+        if DEBUG_BEDROCK_LOG:
+            print(f"Claude raw response: {json.dumps(data)[:2000]}")
         # Expected shape: data['content'] is a list of content blocks
         content_blocks = data.get("content", [])
         for block in content_blocks:
@@ -85,14 +88,18 @@ def handler(event, context):
     print('Starting test rag pipeline')
     print('test message')
     user_query = event["query"]
+    print(f"User query: {user_query}")
 
     conn = get_db_connection()
     query_emb = get_embedding(user_query)
     chunks = retrieve_similar_chunks(conn, query_emb, k=5)
+    print(f"Retrieved {len(chunks)} chunks from vector DB")
 
     query_context = "\n\n".join([r[1] for r in chunks])
     prompt = f"Context:\n{query_context}\n\nQuestion: {user_query}\nAnswer:"
+    print(f"Prompt length: {len(prompt)} characters")
     answer = generate_answer(prompt)
+    print(f"Model answer (first 300 chars): {answer[:300]}")
 
     conn.close()
 
