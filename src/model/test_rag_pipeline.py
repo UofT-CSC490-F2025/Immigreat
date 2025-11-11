@@ -8,6 +8,9 @@ secretsmanager_client = boto3.client('secretsmanager')
 
 PGVECTOR_SECRET_ARN = os.environ['PGVECTOR_SECRET_ARN']
 EMBEDDING_MODEL = os.environ.get('BEDROCK_EMBEDDING_MODEL', 'amazon.titan-embed-text-v1')
+# Make Claude model configurable via env; keep existing default if not set.
+CLAUDE_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'anthropic.claude-3-5-sonnet-20240620-v1:0')
+ANTHROPIC_VERSION = os.environ.get('ANTHROPIC_VERSION', 'bedrock-2023-05-31')
 
 def get_db_connection():
     secret = secretsmanager_client.get_secret_value(SecretId=PGVECTOR_SECRET_ARN)
@@ -39,17 +42,44 @@ def retrieve_similar_chunks(conn, embedding, k=5):
     cur.close()
     return rows
 
-def generate_answer(prompt):
-    response = bedrock_runtime.invoke_model(
-        modelId="anthropic.claude-3-5-sonnet-20240620-v1:0",
-        contentType="application/json",
-        accept="application/json",
-        body=json.dumps({
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 500
-        })
-    )
-    return json.loads(response["body"].read())["content"][0]["text"]
+def generate_answer(prompt: str) -> str:
+    """Send a chat prompt to Claude on Bedrock and return the assistant text.
+
+    Bedrock Anthropic models require:
+      - anthropic_version field
+      - messages: list of { role, content:[{type: "text", text: ...}] }
+    """
+    payload = {
+        "anthropic_version": ANTHROPIC_VERSION,
+        "max_tokens": 500,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt}
+                ]
+            }
+        ]
+    }
+
+    try:
+        response = bedrock_runtime.invoke_model(
+            modelId=CLAUDE_MODEL_ID,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(payload)
+        )
+        data = json.loads(response["body"].read())
+        # Expected shape: data['content'] is a list of content blocks
+        content_blocks = data.get("content", [])
+        for block in content_blocks:
+            if block.get("type") == "text":
+                return block.get("text", "")
+        # Fallback: raise if format unexpected
+        raise ValueError(f"Unexpected Claude response format: {data}")
+    except Exception as e:
+        print(f"Error invoking Claude model: {e}")
+        raise
 
 def handler(event, context):
     print('Starting test rag pipeline')
