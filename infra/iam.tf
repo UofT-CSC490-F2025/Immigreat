@@ -106,6 +106,14 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0"
         ]
       },
+      # AWS Marketplace - Required for Bedrock marketplace models
+      {
+        Effect = "Allow"
+        Action = [
+          "aws-marketplace:ViewSubscriptions"
+        ]
+        Resource = "*"
+      },
       # VPC - Required for Lambda to access Aurora in VPC
       {
         Effect = "Allow"
