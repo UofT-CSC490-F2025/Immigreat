@@ -163,6 +163,43 @@ resource "aws_lambda_function" "rag_pipeline" {
   }
 }
 
+# Lightweight DB admin/query lambda (list tables, describe table)
+resource "aws_lambda_function" "db_admin" {
+  function_name = "db-admin-function-${local.environment}"
+  role          = aws_iam_role.lambda_role.arn
+
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
+
+  timeout     = 60
+  memory_size = 256
+
+  architectures = ["arm64"]
+
+  image_config {
+    command = ["model.db_admin_lambda.handler"]
+  }
+
+  vpc_config {
+    subnet_ids         = module.vpc.private_subnets
+    security_group_ids = [aws_security_group.lambda.id]
+  }
+
+  environment {
+    variables = {
+      PGVECTOR_SECRET_ARN = aws_secretsmanager_secret.pgvector_creds.arn
+      PGVECTOR_DB_HOST    = aws_db_instance.pgvector.address
+      PGVECTOR_DB_NAME    = var.db_name
+      PGVECTOR_DB_PORT    = tostring(aws_db_instance.pgvector.port)
+    }
+  }
+}
+
+resource "aws_cloudwatch_log_group" "db_admin_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.db_admin.function_name}"
+  retention_in_days = 7
+}
+
 resource "aws_lambda_permission" "allow_s3" {
   statement_id  = "AllowS3Invoke"
   action        = "lambda:InvokeFunction"
