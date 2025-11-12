@@ -12,7 +12,7 @@ EMBEDDING_MODEL = os.environ.get('BEDROCK_EMBEDDING_MODEL', 'amazon.titan-embed-
 # Make Claude model configurable via env; keep existing default if not set.
 CLAUDE_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'anthropic.claude-3-5-sonnet-20240620-v1:0')
 ANTHROPIC_VERSION = os.environ.get('ANTHROPIC_VERSION', 'bedrock-2023-05-31')
-DEBUG_BEDROCK_LOG = os.environ.get('DEBUG_BEDROCK_LOG', 'false').lower() in ('1', 'true', 'yes')
+DEBUG_BEDROCK_LOG = True
 FE_RAG_ENABLE = True
 # Comma-separated facet columns from the documents table to expand on
 FE_RAG_FACETS = [c.strip() for c in os.environ.get('FE_RAG_FACETS', 'source,title,section').split(',') if c.strip()]
@@ -173,7 +173,7 @@ def generate_answer(prompt: str) -> str:
         raise
 
 def rerank_chunks(query: str, chunks):
-    """Optional reranking using Cohere Rerank (Bedrock) if enabled.
+    """Reranking using Cohere Rerank (Bedrock) if enabled.
 
     chunks: list of tuples (id, content, source, title, similarity)
     Returns reordered list (may truncate to CONTEXT_MAX_CHUNKS).
