@@ -276,7 +276,6 @@ def find_internal_article_links(soup, base_url, limit=MAX_SUBPAGE_PER_PAGE):
     seen = set()
     results = []
 
-    # Pre-parse once
     for a in anchors:
         href = a['href']
         if not href or href.startswith(('#', 'mailto:', 'tel:')):
