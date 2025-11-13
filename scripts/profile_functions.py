@@ -48,7 +48,6 @@ from rag_llm_judge.judge.data_loader import ImmigrationQADataset
 
 # 4) rag_llm_judge.judge.model_utils.print_trainable_parameters (optional)
 try:
-    import torch
     import torch.nn as nn
     from rag_llm_judge.judge.model_utils import print_trainable_parameters
     TORCH_AVAILABLE = True
