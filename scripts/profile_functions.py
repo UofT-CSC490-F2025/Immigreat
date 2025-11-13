@@ -133,6 +133,7 @@ if __name__ == "__main__":
         try:
             tmp_path.unlink(missing_ok=True)
         except Exception:
+            # Ignore errors during cleanup (e.g., file may already be deleted)
             pass
 
     # 5) print_trainable_parameters (optional)
