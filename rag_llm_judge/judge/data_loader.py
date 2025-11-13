@@ -42,7 +42,7 @@ class ImmigrationQADataset(Dataset):
         splitlines() reduces per-iteration overhead while preserving readability.
         """
         with open(self.data_path, 'r', encoding='utf-8') as f:
-            return [json.loads(line) for line in f.read().splitlines() if line]
+            return [json.loads(line) for line in f if line.strip()]
 
     def _print_stats(self):
         """Print dataset statistics."""
