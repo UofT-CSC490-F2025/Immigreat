@@ -239,8 +239,9 @@ def chunk_document(doc: Dict[str, Any], chunk_size: int, chunk_overlap: int) -> 
     text_chunks = chunk_text(content, chunk_size, chunk_overlap)
 
     # Convert to chunk dictionaries efficiently
-    # Why it's important: This loop runs for every chunk of every document. Avoid repeated dict lookups
-    # by hoisting common fields and only varying id/content per chunk.
+    # Why it's important: This loop runs for every chunk of every document. The main optimization here is
+    # extracting doc_id once, rather than repeatedly accessing doc.get('id') or base['document_id'] in each iteration.
+    # The base dictionary is used for convenience and code clarity, not for performance.
     base = {
         'document_id': doc.get('id'),
         'title': doc.get('title'),
