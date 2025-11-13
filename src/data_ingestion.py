@@ -172,7 +172,7 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[st
         return [text.strip()]
 
     # Guarantee forward progress: overlap can't cancel out the window advance
-    effective_overlap = max(0, min(overlap, max(0, chunk_size - 1)))
+    effective_overlap = min(overlap, chunk_size - 1)
 
     chunks: List[str] = []
     start = 0
