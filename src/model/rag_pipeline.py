@@ -73,17 +73,32 @@ def retrieve_similar_chunks(conn, embedding, k=5):
 
 def generate_bedrock_answer(prompt):
     """Generate an answer using Claude via Bedrock."""
-    response = bedrock_client.invoke_model(
-        modelId="anthropic.claude-3-sonnet-20240229-v1:0",
-        contentType="application/json",
-        accept="application/json",
-        body=json.dumps({
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 500
-        })
+    try:
+        response = bedrock_client.invoke_model(
+            modelId="anthropic.claude-3-5-sonnet-20240620-v1:0",
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",   # REQUIRED
+                "max_tokens": 512,
+                "temperature": 0.7,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt}
+                        ]
+                    }
+                ]
+            })
         )
-    result = json.loads(response["body"].read())
-    return result["content"][0]["text"]
+
+        result = json.loads(response["body"].read())
+        return result["content"][0]["text"]
+
+    except Exception as e:
+        print(f"Error generating answer: {e}")
+        raise
 
 # ----------------------------
 
