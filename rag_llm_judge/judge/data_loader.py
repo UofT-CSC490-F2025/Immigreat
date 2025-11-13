@@ -35,13 +35,14 @@ class ImmigrationQADataset(Dataset):
         self._print_stats()
 
     def _load_data(self) -> List[Dict]:
-        """Load JSONL data."""
-        examples = []
+        """Load JSONL data.
+
+        Why it's important: Dataset loading happens frequently in experiments; Python-level
+        loop overhead can be a bottleneck on large files. Using a list comprehension over
+        splitlines() reduces per-iteration overhead while preserving readability.
+        """
         with open(self.data_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                example = json.loads(line.strip())
-                examples.append(example)
-        return examples
+            return [json.loads(line) for line in f.read().splitlines() if line]
 
     def _print_stats(self):
         """Print dataset statistics."""
