@@ -233,7 +233,6 @@ def rerank_chunks(query: str, chunks):
 
 def handler(event, context):
     print('Starting rag pipeline')
-    print('test message')
     user_query = event["query"]
 
     conn = get_db_connection()
