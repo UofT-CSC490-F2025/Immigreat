@@ -14,7 +14,6 @@ Run:
 import cProfile
 import pstats
 import io
-import random
 import tempfile
 import sys
 import os
