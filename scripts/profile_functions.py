@@ -71,8 +71,10 @@ def synthetic_text(n_chars: int = 200_000) -> str:
         "This is a synthetic sentence meant to approximate realistic text with punctuation. "
     )
     parts = []
-    while sum(len(p) for p in parts) < n_chars:
+    total = 0
+    while total < n_chars:
         parts.append(sentence)
+        total += len(sentence)
     return "".join(parts)
 
 
