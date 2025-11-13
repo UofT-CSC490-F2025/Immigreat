@@ -65,7 +65,8 @@ def print_trainable_parameters(model):
     Why it's important: Called during training setup; using generator expressions lets PyTorch
     provide sizes while Python does minimal work, reducing overhead for large models.
     """
-    total = sum(p.numel() for p in model.parameters())
-    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    params = [(p.numel(), p.requires_grad) for p in model.parameters()]
+    total = sum(n for n, _ in params)
+    trainable = sum(n for n, grad in params if grad)
     pct = (100 * trainable / total) if total else 0.0
     logger.info(f"Trainable params: {trainable} / {total} ({pct:.2f}%)")
