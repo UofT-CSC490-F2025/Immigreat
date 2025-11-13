@@ -200,8 +200,6 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[st
         start = next_start
 
         # Early exit if the remaining tail is tiny
-        if n - start <= 0:
-            break
 
     return chunks
 
