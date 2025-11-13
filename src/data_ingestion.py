@@ -176,7 +176,7 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[st
 
     chunks: List[str] = []
     start = 0
-    # limit the sentence boundary look-back to at most 100 characters for speed
+    # limit the sentence boundary search range to at most 100 characters for speed
     lookback = 100
 
     while start < n:
