@@ -233,7 +233,27 @@ def rerank_chunks(query: str, chunks):
 
 def handler(event, context):
     print('Starting rag pipeline')
-    user_query = event["query"]
+    
+    # Handle Lambda Function URL events (HTTP requests)
+    if 'body' in event:
+        try:
+            body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+            user_query = body.get("query")
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"Error parsing request body: {e}")
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Invalid JSON in request body"})
+            }
+    else:
+        # Direct invocation (for testing)
+        user_query = event.get("query")
+    
+    if not user_query:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Missing 'query' parameter"})
+        }
 
     conn = get_db_connection()
     query_emb = get_embedding(user_query)
