@@ -3,7 +3,7 @@ from locust import HttpUser, task, between
 class RAGUser(HttpUser):
     wait_time = between(1, 3)
 
-    host = "https://ajd3l7oqosub7ektyh64lydlfa0yxead.lambda-url.us-east-1.on.aws"
+    host = "https://fvnuhvmnrvfqlf5urz6piu2kwu0vhxbw.lambda-url.us-east-1.on.aws"
 
     @task
     def test_lambda(self):
