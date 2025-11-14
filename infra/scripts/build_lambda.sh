@@ -25,6 +25,7 @@ build_and_push() {
 
   echo "Building ${local_image} using ${dockerfile}"
   docker buildx build \
+    --no-cache \
     --output type=docker \
     --provenance=false \
     --sbom=false \
