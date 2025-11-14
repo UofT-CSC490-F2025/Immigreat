@@ -134,12 +134,12 @@ resource "aws_lambda_function" "rag_pipeline" {
   role          = aws_iam_role.lambda_role.arn
 
   package_type = "Image"
-  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:ingest-latest"
 
   timeout         = var.lambda_timeout
   memory_size     = var.lambda_memory
 
-  architectures = ["arm64"]
+  architectures = ["x86_64"]
 
   image_config {
     command = ["model.rag_pipeline.handler"]

@@ -4,6 +4,5 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY data_ingestion.py .
-COPY model/ ./model/
 
-CMD ["model.rag_pipeline.handler"]
+CMD ["data_ingestion.handler"]
