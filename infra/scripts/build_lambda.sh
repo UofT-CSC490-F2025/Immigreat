@@ -25,7 +25,6 @@ build_and_push() {
 
   echo "Building ${local_image} using ${dockerfile}"
   docker buildx build \
-    --platform linux/arm64 \
     --output type=docker \
     --provenance=false \
     --sbom=false \
