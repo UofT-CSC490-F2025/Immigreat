@@ -161,6 +161,14 @@ resource "aws_lambda_function" "rag_pipeline" {
       EMBEDDING_DIMENSIONS     = var.bedrock_embedding_dimensions
       BEDROCK_CHAT_MODEL       = var.bedrock_chat_model_id
       RERANK_MODEL             = var.bedrock_rerank_model_id
+      
+      # RAG pipeline configuration
+      ANTHROPIC_VERSION        = "bedrock-2023-05-31"
+      CONTEXT_MAX_CHUNKS       = "12"
+      FE_RAG_FACETS            = "source,title,section"
+      FE_RAG_MAX_FACET_VALUES  = "2"
+      FE_RAG_EXTRA_LIMIT       = "5"
+      RERANK_API_VERSION       = "2"
     }
   }
 }
