@@ -233,7 +233,16 @@ def rerank_chunks(query: str, chunks):
 
 def handler(event, context):
     print('Starting rag pipeline')
-    user_query = event["query"]
+    if "body" in event:
+        try:
+            payload = json.loads(event["body"])
+        except:
+            payload = {}
+    else:
+        # Handle direct invocation or REST API Test Event
+        payload = event
+
+    user_query = payload["query"]
 
     conn = get_db_connection()
     query_emb = get_embedding(user_query)
