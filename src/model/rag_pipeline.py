@@ -32,7 +32,7 @@ except ValueError:
 CONTEXT_MAX_CHUNKS = int(os.environ.get('CONTEXT_MAX_CHUNKS', '12'))
 
 # Retry configuration for Bedrock API calls
-MAX_BEDROCK_RETRIES = int(os.environ.get('MAX_BEDROCK_RETRIES', '5'))
+MAX_BEDROCK_RETRIES = int(os.environ.get('MAX_BEDROCK_RETRIES', '10'))
 BEDROCK_BASE_DELAY = float(os.environ.get('BEDROCK_BASE_DELAY', '1.0'))  # seconds
 BEDROCK_MAX_JITTER = float(os.environ.get('BEDROCK_MAX_JITTER', '1.0'))  # seconds
 
