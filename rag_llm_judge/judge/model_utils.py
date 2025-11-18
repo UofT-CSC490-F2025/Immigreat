@@ -60,11 +60,13 @@ def freeze_transformer_layers(model, num_unfrozen=2):
     logger.info(f"Froze all but the last {num_unfrozen} transformer layers.")
 
 def print_trainable_parameters(model):
-    trainable = 0
-    total = 0
-    for param in model.parameters():
-        total += param.numel()
-        if param.requires_grad:
-            trainable += param.numel()
-    pct = 100 * trainable / total
+    """Log total and trainable parameter counts efficiently.
+
+    Why it's important: Called during training setup; using generator expressions lets PyTorch
+    provide sizes while Python does minimal work, reducing overhead for large models.
+    """
+    params = [(p.numel(), p.requires_grad) for p in model.parameters()]
+    total = sum(n for n, _ in params)
+    trainable = sum(n for n, grad in params if grad)
+    pct = (100 * trainable / total) if total else 0.0
     logger.info(f"Trainable params: {trainable} / {total} ({pct:.2f}%)")

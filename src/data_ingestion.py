@@ -149,6 +149,14 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[st
     Simple text chunking with overlap (no external dependencies).
     Tries to break at sentence boundaries for better semantic coherence.
 
+    Why it's important: This runs for every document and can handle very large texts; inefficient chunking
+    or bad overlap logic can significantly slow ingestion and even risk infinite loops.
+
+    Optimization notes:
+    - Ensure forward progress even if overlap >= chunk_size (avoid infinite loop).
+    - Reduce repeated global lookups and slicing overhead by keeping indices tight.
+    - Keep the sentence-boundary search bounded and cheap.
+
     Args:
         text: Text to chunk
         chunk_size: Target size of each chunk
@@ -157,27 +165,41 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[st
     Returns:
         List of text chunks
     """
-    if len(text) <= chunk_size:
-        return [text]
+    n = len(text)
+    if n == 0:
+        return []
+    if n <= chunk_size:
+        return [text.strip()]
 
-    chunks = []
+    # Guarantee forward progress: overlap can't cancel out the window advance
+    effective_overlap = min(overlap, chunk_size - 1)
+
+    chunks: List[str] = []
     start = 0
+    # limit the sentence boundary search range to at most 100 characters for speed
+    lookback = 100
 
-    while start < len(text):
-        end = start + chunk_size
+    while start < n:
+        end = min(start + chunk_size, n)
 
-        # Try to break at sentence boundary
-        if end < len(text):
-            # Look for sentence end within last 100 chars
-            sentence_end = text.rfind('. ', end - 100, end)
-            if sentence_end > start:
-                end = sentence_end + 1
+        # Try to break at sentence boundary within [end-lookback, end)
+        if end < n:
+            lb = max(start, end - lookback)
+            cut = text.rfind('. ', lb, end)
+            if cut > start:
+                end = cut + 1  # include period
 
         chunk = text[start:end].strip()
-        if chunk:  # Only add non-empty chunks
+        if chunk:
             chunks.append(chunk)
 
-        start = end - overlap
+        # Move start forward; ensure at least +1 progress
+        next_start = end - effective_overlap
+        if next_start <= start:
+            next_start = start + 1
+        start = next_start
+
+        # Early exit if the remaining tail is tiny
 
     return chunks
 
@@ -214,22 +236,27 @@ def chunk_document(doc: Dict[str, Any], chunk_size: int, chunk_overlap: int) -> 
     # Split into chunks
     text_chunks = chunk_text(content, chunk_size, chunk_overlap)
 
-    # Convert to chunk dictionaries
-    chunk_dicts = []
-    for idx, text_chunk in enumerate(text_chunks, 1):  # Changed from chunk_text to text_chunk
-        chunk_id = f"{doc.get('id')}_chunk_{idx}"
-        chunk_dict = {
-            'id': chunk_id,
-            'document_id': doc.get('id'),
-            'content': text_chunk,  # Changed from chunk_text to text_chunk
-            'title': doc.get('title'),
-            'section': doc.get('section'),
-            'source': doc.get('source'),
-            'date_published': doc.get('date_published'),
-            'date_scraped': doc.get('date_scraped'),
-            'granularity': doc.get('granularity')
-        }
-        chunk_dicts.append(chunk_dict)
+    # Convert to chunk dictionaries efficiently
+    # Why it's important: This loop runs for every chunk of every document. The main optimization here is
+    # extracting doc_id once, rather than repeatedly accessing doc.get('id') or base['document_id'] in each iteration.
+    # The base dictionary is used for convenience and code clarity, not for performance.
+    base = {
+        'document_id': doc.get('id'),
+        'title': doc.get('title'),
+        'section': doc.get('section'),
+        'source': doc.get('source'),
+        'date_published': doc.get('date_published'),
+        'date_scraped': doc.get('date_scraped'),
+        'granularity': doc.get('granularity'),
+    }
+    chunk_dicts: List[Dict[str, Any]] = []
+    doc_id = base['document_id']
+    for idx, text_chunk in enumerate(text_chunks, 1):
+        chunk_dicts.append({
+            'id': f"{doc_id}_chunk_{idx}",
+            'content': text_chunk,
+            **base,
+        })
 
     return chunk_dicts
 

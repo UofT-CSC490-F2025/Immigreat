@@ -263,32 +263,43 @@ def is_listing_page(soup):
     return False
 
 def find_internal_article_links(soup, base_url, limit=MAX_SUBPAGE_PER_PAGE):
+    """Collect internal canada.ca article links efficiently.
+
+    Why it's important: Link extraction runs for many pages; the original version performed
+    O(n^2) de-duplication using a list membership check. Switching to a set avoids quadratic
+    behavior on large pages and speeds up crawling.
+    """
     main = soup.find('main') or soup.body
     anchors = main.find_all('a', href=True)
-    links = []
-    base_parsed = urlparse(base_url)
+
+    # Use a set for O(1) de-dup checks
+    seen = set()
+    results = []
+
     for a in anchors:
         href = a['href']
-        if href.startswith('#') or href.startswith('mailto:') or href.startswith('tel:'):
+        if not href or href.startswith(('#', 'mailto:', 'tel:')):
             continue
         full = urljoin(base_url, href)
+        if full == base_url:
+            continue
         parsed = urlparse(full)
         if not parsed.netloc.endswith('canada.ca'):
             continue
-        # simple heuristics to avoid CV-intensive links:
-        if '/news/' in parsed.path or '/immigration-refugees-citizenship/news' in parsed.path or '/services/' in parsed.path:
-            links.append(full)
-        # otherwise include if .html and not too deep
-        elif parsed.path.endswith('.html'):
-            links.append(full)
-    # dedupe & limit
-    uniq = []
-    for u in links:
-        if u not in uniq and u != base_url:
-            uniq.append(u)
-            if len(uniq) >= limit:
-                break
-    return uniq
+        path = parsed.path
+
+        # Heuristics for likely article content
+        if ('/news/' in path or
+                '/immigration-refugees-citizenship/news' in path or
+                '/services/' in path or
+                path.endswith('.html')):
+            if full not in seen:
+                seen.add(full)
+                results.append(full)
+                if len(results) >= limit:
+                    break
+
+    return results
 
 def scrape_page(url, visited, session, crawl_subpages=False):
     """Scrape a single page; returns list of records."""
