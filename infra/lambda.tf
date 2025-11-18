@@ -159,8 +159,31 @@ resource "aws_lambda_function" "rag_pipeline" {
 
       BEDROCK_EMBEDDING_MODEL  = var.bedrock_embedding_model_id
       EMBEDDING_DIMENSIONS     = var.bedrock_embedding_dimensions
+      BEDROCK_CHAT_MODEL       = var.bedrock_chat_model_id
+      RERANK_MODEL             = var.bedrock_rerank_model_id
     }
   }
+}
+
+# Public HTTPS endpoint for rag_pipeline (simple alternative to API Gateway)
+resource "aws_lambda_function_url" "rag_pipeline_url" {
+  function_name      = aws_lambda_function.rag_pipeline.function_name
+  authorization_type = "NONE"  # open for testing; tighten later if needed
+  cors {
+    allow_origins = ["*"]
+    allow_methods = ["POST"]
+    allow_headers = ["content-type"]
+    max_age       = 3600
+  }
+}
+
+# Explicitly allow unauthenticated public invocations via Function URL
+resource "aws_lambda_permission" "rag_pipeline_function_url_public" {
+  statement_id             = "AllowPublicFunctionUrlInvoke"
+  action                   = "lambda:InvokeFunctionUrl"
+  function_name            = aws_lambda_function.rag_pipeline.function_name
+  principal                = "*"
+  function_url_auth_type   = "NONE"
 }
 
 # Lightweight DB admin/query lambda (list tables, describe table)

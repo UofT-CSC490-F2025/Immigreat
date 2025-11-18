@@ -75,3 +75,15 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+variable "bedrock_chat_model_id" {
+  description = "Bedrock chat model ID used by RAG generation"
+  type        = string
+  default     = "anthropic.claude-3-5-sonnet-20240620-v1:0"
+}
+
+variable "bedrock_rerank_model_id" {
+  description = "Bedrock rerank model ID (Cohere Rerank)"
+  type        = string
+  default     = "cohere.rerank-v3-5:0"
+}

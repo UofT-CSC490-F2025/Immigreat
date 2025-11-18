@@ -1,8 +1,11 @@
 import json
 import os
+import time
+import random
 import boto3
 import psycopg2
 from collections import Counter
+from botocore.exceptions import ClientError
 
 bedrock_runtime = boto3.client('bedrock-runtime', region_name='us-east-1')
 secretsmanager_client = boto3.client('secretsmanager')
@@ -28,6 +31,81 @@ except ValueError:
     RERANK_API_VERSION = 2
 CONTEXT_MAX_CHUNKS = int(os.environ.get('CONTEXT_MAX_CHUNKS', '12'))
 
+# Retry configuration for Bedrock API calls
+MAX_BEDROCK_RETRIES = int(os.environ.get('MAX_BEDROCK_RETRIES', '10'))
+BEDROCK_BASE_DELAY = float(os.environ.get('BEDROCK_BASE_DELAY', '1.0'))  # seconds
+BEDROCK_MAX_JITTER = float(os.environ.get('BEDROCK_MAX_JITTER', '1.0'))  # seconds
+
+def invoke_bedrock_with_backoff(model_id, body, content_type="application/json", accept="application/json", max_retries=None):
+    """
+    Invoke Bedrock model with exponential backoff and jitter to handle throttling.
+    
+    Args:
+        model_id: The Bedrock model ID to invoke
+        body: JSON string of the request body
+        content_type: Content type header
+        accept: Accept header
+        max_retries: Maximum number of retry attempts (defaults to MAX_BEDROCK_RETRIES)
+    
+    Returns:
+        Bedrock response object
+        
+    Raises:
+        Exception if max retries exceeded or non-throttling error occurs
+    """
+    if max_retries is None:
+        max_retries = MAX_BEDROCK_RETRIES
+    
+    last_exception = None
+    
+    for attempt in range(max_retries):
+        try:
+            response = bedrock_runtime.invoke_model(
+                modelId=model_id,
+                contentType=content_type,
+                accept=accept,
+                body=body
+            )
+            # Success - return immediately
+            if attempt > 0:
+                print(f"Successfully invoked {model_id} after {attempt + 1} attempts")
+            return response
+            
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            last_exception = e
+            
+            # Check if it's a throttling error
+            if error_code == 'ThrottlingException':
+                if attempt == max_retries - 1:
+                    # Last attempt - don't sleep, just raise
+                    print(f"Max retries ({max_retries}) exceeded for {model_id}")
+                    raise
+                
+                # Calculate exponential backoff with jitter
+                exponential_delay = (2 ** attempt) * BEDROCK_BASE_DELAY
+                jitter = random.uniform(0, BEDROCK_MAX_JITTER)
+                total_delay = exponential_delay + jitter
+                
+                print(f"ThrottlingException on attempt {attempt + 1}/{max_retries} for {model_id}, "
+                      f"retrying in {total_delay:.2f}s (base: {exponential_delay:.2f}s + jitter: {jitter:.2f}s)")
+                
+                time.sleep(total_delay)
+            else:
+                # Non-throttling error - raise immediately
+                print(f"Non-throttling error from {model_id}: {error_code} - {str(e)}")
+                raise
+                
+        except Exception as e:
+            # Unexpected error - raise immediately
+            print(f"Unexpected error invoking {model_id}: {str(e)}")
+            raise
+    
+    # Should not reach here, but just in case
+    if last_exception:
+        raise last_exception
+    raise Exception(f"Failed to invoke {model_id} after {max_retries} attempts")
+
 def get_db_connection():
     secret = secretsmanager_client.get_secret_value(SecretId=PGVECTOR_SECRET_ARN)
     creds = json.loads(secret['SecretString'])
@@ -51,11 +129,10 @@ def list_tables(conn):
 
 
 def get_embedding(text: str):
+    """Generate embedding for text using Bedrock with retry logic."""
     body = json.dumps({"inputText": text})
-    resp = bedrock_runtime.invoke_model(
-        modelId=EMBEDDING_MODEL,
-        contentType="application/json",
-        accept="application/json",
+    resp = invoke_bedrock_with_backoff(
+        model_id=EMBEDDING_MODEL,
         body=body
     )
     return json.loads(resp["body"].read())["embedding"]
@@ -166,10 +243,8 @@ def generate_answer(prompt: str) -> str:
     }
 
     try:
-        response = bedrock_runtime.invoke_model(
-            modelId=CLAUDE_MODEL_ID,
-            contentType="application/json",
-            accept="application/json",
+        response = invoke_bedrock_with_backoff(
+            model_id=CLAUDE_MODEL_ID,
             body=json.dumps(payload)
         )
         data = json.loads(response["body"].read())
@@ -202,10 +277,8 @@ def rerank_chunks(query: str, chunks):
             "documents": docs,
             "top_n": min(CONTEXT_MAX_CHUNKS, len(docs))
         })
-        resp = bedrock_runtime.invoke_model(
-            modelId=RERANK_MODEL_ID,
-            contentType="application/json",
-            accept="application/json",
+        resp = invoke_bedrock_with_backoff(
+            model_id=RERANK_MODEL_ID,
             body=body
         )
         data = json.loads(resp['body'].read())
@@ -232,38 +305,100 @@ def rerank_chunks(query: str, chunks):
         return chunks[:CONTEXT_MAX_CHUNKS]
 
 def handler(event, context):
+    """Universal handler supporting both direct Lambda invocation and HTTP (Function URL/API Gateway).
+
+    Accepted input shapes:
+    - Direct invocation: {"query": "..."}
+    - HTTP (Lambda Function URL / API Gateway proxy): {"body": "{\"query\": \"...\"}"}
+
+    Returns a JSON body with answer and source metadata plus stage timings for latency analysis.
+    """
     print('Starting rag pipeline')
-    user_query = event["query"]
 
+    # Extract query from possible event shapes
+    user_query = None
+    if isinstance(event, dict):
+        if 'query' in event:  # direct invoke style
+            user_query = event.get('query')
+        elif 'body' in event:  # HTTP invoke style
+            raw_body = event.get('body')
+            if raw_body:
+                try:
+                    parsed = json.loads(raw_body)
+                    user_query = parsed.get('query')
+                except Exception as e:
+                    print(f"Failed to parse JSON body: {e}")
+    if not user_query or not isinstance(user_query, str) or not user_query.strip():
+        return {
+            'statusCode': 400,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Methods': 'POST,OPTIONS'
+            },
+            'body': json.dumps({'error': "Missing or invalid 'query'"})
+        }
+    user_query = user_query.strip()
+
+    timings = {}
+    t0 = time.time()
     conn = get_db_connection()
-    query_emb = get_embedding(user_query)
-    chunks = retrieve_similar_chunks(conn, query_emb, k=5)
-    if FE_RAG_ENABLE:
-        facet_extras = expand_via_facets(conn, chunks, query_emb, extra_limit=FE_RAG_EXTRA_LIMIT)
-        # Dedup by id, keep original order
-        seen = {r[0] for r in chunks}
-        for r in facet_extras:
-            if r[0] not in seen:
-                chunks.append(r)
-                seen.add(r[0])
-    print(f"Retrieved {len(chunks)} chunks from vector DB")
-    # Rerank (optional)
-    chunks = rerank_chunks(user_query, chunks)
-    print(f"Final chunk count after rerank + truncation: {len(chunks)}")
+    try:
+        # Embedding stage
+        t_emb_start = time.time()
+        query_emb = get_embedding(user_query)
+        timings['embedding_ms'] = round((time.time() - t_emb_start) * 1000, 2)
 
-    query_context = "\n\n".join([r[1] for r in chunks])
-    prompt = f"Context:\n{query_context}\n\nQuestion: {user_query}\nAnswer:"
-    print(f"Prompt length: {len(prompt)} characters")
-    answer = generate_answer(prompt)
-    print(f"Model answer (full answer): {answer}")
+        # Initial vector retrieval
+        t_ret_start = time.time()
+        chunks = retrieve_similar_chunks(conn, query_emb, k=5)
+        timings['primary_retrieval_ms'] = round((time.time() - t_ret_start) * 1000, 2)
 
-    conn.close()
+        # Facet expansion (optional)
+        if FE_RAG_ENABLE:
+            t_facet_start = time.time()
+            facet_extras = expand_via_facets(conn, chunks, query_emb, extra_limit=FE_RAG_EXTRA_LIMIT)
+            timings['facet_expansion_ms'] = round((time.time() - t_facet_start) * 1000, 2)
+            # Deduplicate by id while preserving original order
+            seen = {r[0] for r in chunks}
+            for r in facet_extras:
+                if r[0] not in seen:
+                    chunks.append(r)
+                    seen.add(r[0])
+        print(f"Retrieved {len(chunks)} chunks from vector DB (after facet expansion)")
+
+        # Rerank (optional)
+        t_rerank_start = time.time()
+        chunks = rerank_chunks(user_query, chunks)
+        timings['rerank_ms'] = round((time.time() - t_rerank_start) * 1000, 2)
+        print(f"Final chunk count after rerank + truncation: {len(chunks)}")
+
+        # Prompt assembly & generation
+        query_context = "\n\n".join([r[1] for r in chunks])
+        prompt = f"Context:\n{query_context}\n\nQuestion: {user_query}\nAnswer:"
+        print(f"Prompt length: {len(prompt)} characters")
+        t_llm_start = time.time()
+        answer = generate_answer(prompt)
+        timings['llm_ms'] = round((time.time() - t_llm_start) * 1000, 2)
+        print(f"Model answer (full answer): {answer}")
+    finally:
+        conn.close()
+
+    timings['total_ms'] = round((time.time() - t0) * 1000, 2)
+
+    response_body = {
+        'query': user_query,
+        'answer': answer,
+        'sources': [dict(id=r[0], source=r[2], title=r[3], similarity=r[4]) for r in chunks],
+        'timings': timings
+    }
 
     return {
-        "statusCode": 200,
-        "body": json.dumps({
-            "query": user_query,
-            "answer": answer,
-            "sources": [dict(id=r[0], source=r[2], title=r[3], similarity=r[4]) for r in chunks]
-        })
+        'statusCode': 200,
+        'headers': {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Allow-Methods': 'POST,OPTIONS'
+        },
+        'body': json.dumps(response_body)
     }
