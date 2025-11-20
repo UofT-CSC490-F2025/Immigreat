@@ -39,3 +39,4 @@ output "dynamodb_chat_table_arn" {
   value       = aws_dynamodb_table.chat_sessions.arn
 }
 
+
