@@ -107,7 +107,6 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Effect = "Allow"
         Action = [
           "aws-marketplace:ViewSubscriptions",
-          "aws-marketplace:Subscribe"
         ]
         Resource = "*"
       },
@@ -122,6 +121,18 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "ec2:UnassignPrivateIpAddresses"
         ]
         Resource = "*"
+      },
+      # DynamoDB - Chat session storage
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem"
+        ]
+        Resource = "${aws_dynamodb_table.chat_sessions.arn}"
       }
     ]
   })

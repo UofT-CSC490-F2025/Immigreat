@@ -142,7 +142,7 @@ resource "aws_lambda_function" "rag_pipeline" {
   architectures = ["arm64"]
 
   image_config {
-    command = ["model.rag_pipeline.handler"]
+    command = ["model.rag_pipeline_with_chat.handler"]
   }
 
   vpc_config {
@@ -161,6 +161,9 @@ resource "aws_lambda_function" "rag_pipeline" {
       EMBEDDING_DIMENSIONS     = var.bedrock_embedding_dimensions
       BEDROCK_CHAT_MODEL       = var.bedrock_chat_model_id
       RERANK_MODEL             = var.bedrock_rerank_model_id
+      
+      # DynamoDB chat session table
+      DYNAMODB_CHAT_TABLE      = aws_dynamodb_table.chat_sessions.name
     }
   }
 }
