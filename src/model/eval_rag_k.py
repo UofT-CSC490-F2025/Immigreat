@@ -4,28 +4,31 @@ import json
 import boto3
 import requests
 
-from rag_llm_judge.judge.judge_model import ImmigrationJudge  
+from rag_llm_judge.judge.judge_model import ImmigrationJudge
 from .training_data.questions import QUESTIONS_DATA        # expected = 1
-from .training_data.questions import NEGATIVE_QUESTIONS  # expected = 0
+from .training_data.questions import NEGATIVE_QUESTIONS    # expected = 0
+
 
 LAMBDA_URL = "https://<your-id>.lambda-url.us-east-1.on.aws/"
 LAMBDA_NAME = "<your-lambda-name>"
 
 lambda_client = boto3.client("lambda")
 
-
-def call_rag_lambda(query: str, k: int) -> dict:
-    """Call the RAG Lambda via Function URL."""
-    r = requests.post(LAMBDA_URL, json={"query": query, "k": k})
+# -----------------------------
+# CALL RAG API
+# -----------------------------
+def call_rag_lambda(query: str, k: int, use_facet: bool, use_rerank: bool) -> dict:
+    r = requests.post(LAMBDA_URL, json={"query": query, "k": k, "use_facet": use_facet, "use_rerank": use_rerank})
     r.raise_for_status()
     return r.json()
 
 
-def evaluate_k(k: int, judge: ImmigrationJudge):
-    """Evaluate RAG performance for a given top-k retrieval."""
+# -----------------------------
+# EVALUATION FUNCTION
+# -----------------------------
+def evaluate_config(k: int, use_facet: bool, use_rerank: bool, judge: ImmigrationJudge):
 
-    # Merge datasets:
-    # POSITIVE (expected=1) + NEGATIVE (expected=0)
+    # Build combined dataset
     dataset = []
 
     for q in QUESTIONS_DATA:
@@ -37,20 +40,17 @@ def evaluate_k(k: int, judge: ImmigrationJudge):
     correct = 0
     total = len(dataset)
 
-    print(f"\n===== Evaluating top-k = {k}  ({total} questions) =====")
+    print(f"\n===== Evaluating (k={k}, facet={use_facet}, rerank={use_rerank}) =====")
 
     for item in dataset:
         q = item["question"]
         expected = item["expected"]
 
-        # Call your RAG system
-        resp = call_rag_lambda(q, k)
+        resp = call_rag_lambda(q, k, use_facet, use_rerank)
         answer = resp.get("answer", "")
 
-        # Judge the response
         pred, _ = judge.judge_single(q, answer)
 
-        # Count correct judgments
         if pred == expected:
             correct += 1
 
@@ -58,20 +58,31 @@ def evaluate_k(k: int, judge: ImmigrationJudge):
         print(f"A: {answer[:200]} ...")
         print(f"Judge prediction: {pred}, Expected: {expected}")
 
-    accuracy = correct / total
-    print(f"\n=== Top-k = {k} Accuracy: {accuracy:.4f} ===\n")
-    return accuracy
+    acc = correct / total
+    print(f"\n=== Accuracy (k={k}, facet={use_facet}, rerank={use_rerank}): {acc:.4f} ===\n")
+    return acc
 
 
+# -----------------------------
+# MAIN EXECUTION
+# -----------------------------
 if __name__ == "__main__":
     judge = ImmigrationJudge(quantize=True)
 
     ks = [3, 5, 8, 12]
+    facet_options = [True, False]
+    rerank_options = [True, False]
+
+    # Store results in dict
     results = {}
 
     for k in ks:
-        acc = evaluate_k(k, judge)
-        results[k] = acc
+        for facet in facet_options:
+            for rerank in rerank_options:
 
-    print("\nFinal Results:")
+                key = f"k={k},facet={facet},rerank={rerank}"
+                acc = evaluate_config(k, facet, rerank, judge)
+                results[key] = acc
+
+    print("\n========== FINAL RESULTS ==========")
     print(json.dumps(results, indent=2))
