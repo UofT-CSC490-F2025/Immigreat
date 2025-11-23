@@ -349,6 +349,7 @@ def handler(event, context):
             'body': json.dumps({'error': "Missing or invalid 'query'"})
         }
     user_query = user_query.strip()
+    print(f"Received query: {user_query[:100]}... (k={k}, facet={use_facet}, rerank={use_rerank})")
 
     timings = {}
     t0 = time.time()
