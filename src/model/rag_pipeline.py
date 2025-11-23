@@ -320,14 +320,16 @@ def handler(event, context):
     if isinstance(event, dict):
         if 'query' in event:  # direct invoke style
             user_query = event.get('query')
+            k = event.get('k', 5)
         elif 'body' in event:  # HTTP invoke style
             raw_body = event.get('body')
             if raw_body:
                 try:
                     parsed = json.loads(raw_body)
                     user_query = parsed.get('query')
-                except Exception as e:
-                    print(f"Failed to parse JSON body: {e}")
+                    k = parsed.get('k')
+                except:
+                    pass
     if not user_query or not isinstance(user_query, str) or not user_query.strip():
         return {
             'statusCode': 400,
@@ -351,7 +353,7 @@ def handler(event, context):
 
         # Initial vector retrieval
         t_ret_start = time.time()
-        chunks = retrieve_similar_chunks(conn, query_emb, k=5)
+        chunks = retrieve_similar_chunks(conn, query_emb, k=k)
         timings['primary_retrieval_ms'] = round((time.time() - t_ret_start) * 1000, 2)
 
         # Facet expansion (optional)
