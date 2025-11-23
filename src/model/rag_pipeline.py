@@ -262,13 +262,13 @@ def generate_answer(prompt: str) -> str:
         print(f"Error invoking Claude model: {e}")
         raise
 
-def rerank_chunks(query: str, chunks, use_rerank: bool):
+def rerank_chunks(query: str, chunks):
     """Reranking using Cohere Rerank (Bedrock) if enabled.
 
     chunks: list of tuples (id, content, source, title, similarity)
     Returns reordered list (may truncate to CONTEXT_MAX_CHUNKS).
     """
-    if not use_rerank or not chunks:
+    if not chunks:
         return chunks[:CONTEXT_MAX_CHUNKS]
     try:
         docs = [r[1] for r in chunks]
@@ -376,13 +376,14 @@ def handler(event, context):
                 if r[0] not in seen:
                     chunks.append(r)
                     seen.add(r[0])
-        print(f"Retrieved {len(chunks)} chunks from vector DB (after facet expansion)")
+        print(f"Retrieved {len(chunks)} chunks from vector DB")
 
-        # Rerank (optional)
-        t_rerank_start = time.time()
-        chunks = rerank_chunks(user_query, chunks, use_rerank=use_rerank)
-        timings['rerank_ms'] = round((time.time() - t_rerank_start) * 1000, 2)
-        print(f"Final chunk count after rerank + truncation: {len(chunks)}")
+        if use_rerank:
+            # Rerank (optional)
+            t_rerank_start = time.time()
+            chunks = rerank_chunks(user_query, chunks)
+            timings['rerank_ms'] = round((time.time() - t_rerank_start) * 1000, 2)
+            print(f"Final chunk count after rerank + truncation: {len(chunks)}")
 
         # Prompt assembly & generation
         query_context = "\n\n".join([r[1] for r in chunks])
