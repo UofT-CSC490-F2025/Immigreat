@@ -1,0 +1,56 @@
+name: Coverage Badge Update
+
+on:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: ["Test Coverage"]
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  update-badge:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/requirements.txt
+          pip install -r requirements-dev.txt
+          pip install coverage-badge genbadge[coverage]
+
+      - name: Run tests and generate coverage
+        run: |
+          pytest --cov=src --cov-report=xml --cov-report=json
+
+      - name: Generate coverage badge
+        run: |
+          coverage-badge -o coverage.svg -f
+          genbadge coverage -i coverage.json -o coverage-genbadge.svg
+
+      - name: Verify badge was created
+        run: |
+          ls -la *.svg
+
+      - name: Commit badge
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add coverage*.svg
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update coverage badge [skip ci]"
+          git push
