@@ -1,14 +1,5 @@
 [run]
 relative_files = true
-source =
-    src
-
-[paths]
-source =
-    src
-    */workspace/src
-    */work/Immigreat/Immigreat/src
-[run]
 source = src
 omit = 
     */tests/*
@@ -19,6 +10,12 @@ omit =
     */.venv/*
     */site-packages/*
     */dist-packages/*
+
+[paths]
+source =
+    src
+    */workspace/src
+    */work/Immigreat/Immigreat/src
 
 [report]
 precision = 2
