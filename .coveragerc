@@ -1,6 +1,7 @@
 [run]
 relative_files = true
-source = src
+source =
+    src
 
 [paths]
 source =
