@@ -299,6 +299,32 @@ class TestFormsScraperAdvanced:
         
         assert result is not None
 
+    @patch('scraping.forms_scraper.requests.get')
+    def test_text_fallback_heuristic_slice_and_filters(self, mock_get):
+        """Exercise heuristic fallback lines: filtering (<300), punctuation '?', slice to 200 entries, exclude long lines."""
+        from scraping.forms_scraper import extract_fields_from_pdf
+        mock_resp = MagicMock()
+        mock_resp.content = b'%PDF-1.7 fake'
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+        # Build 205 short question lines (accepted) + 5 very long lines (>300 chars, rejected)
+        short_lines = [f"Question {i}?" for i in range(205)]
+        long_line = 'L' * 310 + '?'  # length >300 so excluded even with '?'
+        long_lines = [long_line for _ in range(5)]
+        page_text = '\n'.join(short_lines + long_lines)
+        with patch('scraping.forms_scraper.PdfReader') as mock_reader_cls:
+            mock_reader = MagicMock()
+            mock_reader.xfa = None
+            mock_reader.get_fields.return_value = None
+            mock_page = MagicMock()
+            mock_page.extract_text.return_value = page_text
+            mock_reader.pages = [mock_page]
+            mock_reader_cls.return_value = mock_reader
+            entries = extract_fields_from_pdf('https://example.com/form.pdf')
+        # Should slice to 200 and ignore long lines
+        assert len(entries) == 200
+        assert all(e['section'] == 'PageTextHeuristic' for e in entries)
+
     @patch('scraping.forms_scraper.boto3.client')
     def test_extract_fields_from_webpages_s3_upload_success(self, mock_boto):
         """Test successful S3 upload in webpage extraction."""
@@ -342,3 +368,82 @@ class TestFormsScraperAdvanced:
                         assert "S3 upload failed" in str(e)
                         # If exception propagates, that's also acceptable behavior
                         assert "S3 upload failed" in str(e)
+
+    @patch('scraping.forms_scraper.requests.get')
+    def test_pdf_text_heuristic_empty_full_text(self, mock_get):
+        """PDF pages yield only whitespace -> full_text.strip() falsy -> skip heuristic block and return []."""
+        from scraping.forms_scraper import extract_fields_from_pdf
+        mock_resp = MagicMock(); mock_resp.content = b'%PDF-1.7 fake'; mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+        with patch('scraping.forms_scraper.PdfReader') as mock_reader_cls:
+            mock_reader = MagicMock(); mock_reader.xfa = None; mock_reader.get_fields.return_value = None
+            mock_page = MagicMock(); mock_page.extract_text.return_value = '    '  # only spaces
+            mock_reader.pages = [mock_page]
+            mock_reader_cls.return_value = mock_reader
+            entries = extract_fields_from_pdf('https://example.com/whitespace.pdf')
+        assert entries == []
+
+    @patch('scraping.forms_scraper.boto3.client')
+    @patch('scraping.forms_scraper.extract_fields_from_pdf')
+    @patch('scraping.forms_scraper.get_latest_pdf_from_page')
+    def test_webpage_orchestrator_error_and_success(self, mock_get_latest, mock_extract_pdf, mock_boto):
+        """First page raises -> error branch; second succeeds -> saved entry; triggers S3 upload prints."""
+        from scraping.forms_scraper import extract_fields_from_webpages
+        mock_get_latest.side_effect = [Exception('boom'), 'https://example.com/form.pdf']
+        mock_extract_pdf.return_value = [
+            {"title": "T1", "section": "S", "content": "C", "source": "form.pdf"}
+        ]
+        mock_s3 = MagicMock(); mock_boto.return_value = mock_s3
+        with patch('scraping.forms_scraper.resolve_output_path', return_value='webpages_test.json'):
+            with patch('builtins.open', mock_open()):
+                result = extract_fields_from_webpages([
+                    'https://example.com/page_err', 'https://example.com/page_ok'
+                ], dedupe=True)
+        assert len(result) == 1
+        assert mock_s3.upload_file.called
+
+    def test_xfa_namespace_caption_no_text_nodes(self):
+        """Namespaced XFA root with caption present but no xfa:text children -> caption_text stays empty, fallback to field name."""
+        from scraping.forms_scraper import extract_xfa_fields_from_xml_root, try_parse_xml_safe
+        xml = """
+        <xfa:form xmlns:xfa="http://www.xfa.org/schema/xfa-template/3.3/">
+          <xfa:subform name="Sect">
+            <xfa:field name="FieldA">
+              <xfa:caption><xfa:value>Unused Value</xfa:value></xfa:caption>
+            </xfa:field>
+            <xfa:subform><!-- no name attribute to exercise nm missing branch -->
+              <xfa:field name="FieldB">
+                <xfa:caption><xfa:value>Second Unused</xfa:value></xfa:caption>
+              </xfa:field>
+            </xfa:subform>
+          </xfa:subform>
+        </xfa:form>
+        """.strip()
+        root = try_parse_xml_safe(xml)
+        assert root is not None
+        entries = extract_xfa_fields_from_xml_root(root, 'https://example.com/ns.pdf', '2025-11-27')
+        titles = {e['title'] for e in entries}
+        assert {'FieldA', 'FieldB'} <= titles
+        fieldA = next(e for e in entries if e['title'] == 'FieldA')
+        assert fieldA['content'] == 'FieldA'
+        fieldB = next(e for e in entries if e['title'] == 'FieldB')
+        assert fieldB['content'] == 'FieldB'
+
+    @patch('scraping.forms_scraper.requests.get')
+    @patch('scraping.forms_scraper.PdfReader')
+    def test_acroform_exception_explicit_empty_text(self, mock_pdf_reader, mock_get):
+        """Acro get_fields raises and pages have empty text -> expect []."""
+        from scraping.forms_scraper import extract_fields_from_pdf
+        class P:
+            def extract_text(self):
+                return ''
+        class R:
+            xfa = None
+            def __init__(self, *a, **k):
+                self.pages = [P(), P()]
+            def get_fields(self):
+                raise RuntimeError('acro failure')
+        mock_pdf_reader.side_effect = R
+        mock_get.return_value = type("Resp", (), {"content": b"%PDF-FAKE", "raise_for_status": lambda self: None})()
+        result = extract_fields_from_pdf("https://example.com/acro-empty-text.pdf")
+        assert result == []
