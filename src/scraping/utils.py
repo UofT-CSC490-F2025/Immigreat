@@ -18,7 +18,7 @@ def resolve_output_path(out_path: str) -> str:
     try:
         os.makedirs(dir_name, exist_ok=True)
     except PermissionError:
-        # Fall back to a writable path under CWD
-        out_path = os.path.join(os.getcwd(), os.path.basename(out_path))
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        # If the directory is not writable (e.g., /data in CI), keep the
+        # absolute path unchanged per tests and let the caller handle writes.
+        pass
     return out_path
