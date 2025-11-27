@@ -131,6 +131,18 @@ class TestDbAdminLambda:
         body = json.loads(result['body'])
         assert 'error' in body
 
+    def test_handler_missing_table_for_first(self, mock_env_vars):
+        """Test handler with first action but missing table."""
+        from model.db_admin_lambda import handler
+        
+        event = {'action': 'first'}
+        result = handler(event, None)
+        
+        assert result['statusCode'] == 400
+        body = json.loads(result['body'])
+        assert 'error' in body
+        assert 'table' in body['error']
+
     @patch('model.db_admin_lambda._get_db_conn')
     def test_handler_first_action(self, mock_get_conn, mock_env_vars):
         """Test handler with 'first' action."""
@@ -145,8 +157,7 @@ class TestDbAdminLambda:
         
         event = {
             'action': 'first',
-            'table': 'documents',
-            'order_by': 'id'
+            'table': 'documents'
         }
         result = handler(event, None)
         
@@ -184,8 +195,8 @@ class TestDbAdminLambda:
         mock_conn.__exit__.return_value = None
         mock_get_conn.return_value = mock_conn
         
-        # Call without columns parameter
-        result = _first_row('test_table', columns=None)
+        # Call _first_row
+        result = _first_row('test_table')
         
         assert result['count'] == 1
         assert result['row'] == {'id': 1, 'name': 'test'}
@@ -209,3 +220,18 @@ class TestDbAdminLambda:
         
         assert result['row'] is None
         assert result['count'] == 0
+
+    @patch('model.db_admin_lambda._list_tables')
+    def test_handler_exception(self, mock_list_tables, mock_env_vars):
+        """Test handler exception handling."""
+        from model.db_admin_lambda import handler
+        
+        # Make _list_tables raise an exception
+        mock_list_tables.side_effect = Exception("Database error")
+        
+        event = {"action": "tables"}
+        result = handler(event, None)
+        
+        assert result['statusCode'] == 500
+        body = json.loads(result['body'])
+        assert 'error' in body

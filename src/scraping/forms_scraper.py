@@ -137,76 +137,71 @@ def extract_xfa_fields_from_xml_root(root: ET.Element, pdf_url: str, date_scrape
         field_elems = root.findall(".//field")
 
     for field in field_elems:
-        try:
-            # find nearest ancestor subform node that has a name attribute
-            ancestor = field
-            section_parts = []
-            while ancestor is not None and ancestor is not root:
-                ancestor = parent_map.get(ancestor)
-                if ancestor is None:
-                    break
-                # tag match for subform (namespace-aware)
-                tag_clean = ancestor.tag
-                if isinstance(tag_clean, str) and tag_clean.lower().endswith("subform"):
-                    nm = ancestor.attrib.get("name")
-                    if nm:
-                        section_parts.insert(0, nm)
-            section = " > ".join(section_parts) if section_parts else "MainForm"
+        # find nearest ancestor subform node that has a name attribute
+        ancestor = field
+        section_parts = []
+        while ancestor is not None and ancestor is not root:
+            ancestor = parent_map.get(ancestor)
+            if ancestor is None:
+                break
+            # tag match for subform (namespace-aware)
+            tag_clean = ancestor.tag
+            if isinstance(tag_clean, str) and tag_clean.lower().endswith("subform"):
+                nm = ancestor.attrib.get("name")
+                if nm:
+                    section_parts.insert(0, nm)
+        section = " > ".join(section_parts) if section_parts else "MainForm"
 
-            # original field name
-            original_field_name = field.attrib.get("name", "") or ""
+        # original field name
+        original_field_name = field.attrib.get("name", "") or ""
 
-            # caption handling: prefer caption/value/text but be resilient
-            caption_text = ""
+        # caption handling: prefer caption/value/text but be resilient
+        caption_text = ""
+        if ns:
+            caption_node = field.find(".//xfa:caption", ns)
+        else:
+            caption_node = field.find(".//caption")
+        if caption_node is not None:
+            # try to grab text children
+            # check multiple possible nested paths
+            texts = []
+            for txt in caption_node.findall(".//", ns) if ns else caption_node.findall(".//"):
+                # pick elements whose tag ends with 'text' or contains textual value
+                taglow = txt.tag.lower()
+                if isinstance(taglow, str) and taglow.endswith("text"):
+                    if txt.text and txt.text.strip():
+                        texts.append(txt.text.strip())
+            if texts:
+                caption_text = " ".join(texts)
+
+        # options: find any items/text child nodes
+        options = []
+        if ns:
+            items_nodes = field.findall(".//xfa:items", ns)
+        else:
+            items_nodes = field.findall(".//items")
+        for items in items_nodes:
             if ns:
-                caption_node = field.find(".//xfa:caption", ns)
+                text_nodes = items.findall("xfa:text", ns)
             else:
-                caption_node = field.find(".//caption")
-            if caption_node is not None:
-                # try to grab text children
-                # check multiple possible nested paths
-                texts = []
-                for txt in caption_node.findall(".//", ns) if ns else caption_node.findall(".//"):
-                    # pick elements whose tag ends with 'text' or contains textual value
-                    taglow = txt.tag.lower()
-                    if isinstance(taglow, str) and taglow.endswith("text"):
-                        if txt.text and txt.text.strip():
-                            texts.append(txt.text.strip())
-                if texts:
-                    caption_text = " ".join(texts)
+                text_nodes = items.findall("text")
+            for t in text_nodes:
+                if t.text and t.text.strip():
+                    options.append(t.text.strip())
 
-            # options: find any items/text child nodes
-            options = []
-            if ns:
-                items_nodes = field.findall(".//xfa:items", ns)
-            else:
-                items_nodes = field.findall(".//items")
-            for items in items_nodes:
-                if ns:
-                    text_nodes = items.findall("xfa:text", ns)
-                else:
-                    text_nodes = items.findall("text")
-                for t in text_nodes:
-                    if t.text and t.text.strip():
-                        options.append(t.text.strip())
+        content = ", ".join(options) if options else (caption_text or original_field_name or "")
 
-            content = ", ".join(options) if options else (caption_text or original_field_name or "")
-
-            entry = {
-                "id": str(uuid.uuid4()),
-                "title": original_field_name,
-                "section": section,
-                "content": content,
-                "source": pdf_url,
-                "date_published": None,
-                "date_scraped": date_scraped,
-                "granularity": "field-level"
-            }
-            entries.append(entry)
-        except Exception as e:
-            # keep going on errors per-field
-            print(f"⚠️ Error parsing a field element: {e}")
-            continue
+        entry = {
+            "id": str(uuid.uuid4()),
+            "title": original_field_name,
+            "section": section,
+            "content": content,
+            "source": pdf_url,
+            "date_published": None,
+            "date_scraped": date_scraped,
+            "granularity": "field-level"
+        }
+        entries.append(entry)
 
     return entries
 
@@ -236,10 +231,7 @@ def extract_fields_from_pdf(pdf_url: str) -> list:
     all_entries = []
 
     # 1) XFA extraction (robust: try all packets that might contain XML)
-    try:
-        xfa = reader.xfa
-    except Exception:
-        xfa = None
+    xfa = reader.xfa
 
     if xfa:
         # xfa can be list or dict or other. Try to find candidate XML blobs.
@@ -293,34 +285,28 @@ def extract_fields_from_pdf(pdf_url: str) -> list:
         if fields:
             # fields is a dict mapping fieldname -> field dict or value
             for name, meta in fields.items():
-                try:
-                    field_uuid = str(uuid.uuid4())
-                    # meta might be a dict: look for '/V' or 'V' or direct string
-                    value = ""
-                    if isinstance(meta, dict):
-                        # common keys: '/V', 'V'
-                        value = meta.get('/V') or meta.get('V') or meta.get('value') or ""
-                        if isinstance(value, bytes):
-                            try:
-                                value = value.decode('utf-8', errors='ignore')
-                            except Exception:
-                                value = str(value)
-                    else:
-                        # sometimes meta is the string value
-                        value = str(meta)
-                    content = value if value else str(name)
-                    acro_entries.append({
-                        "id": str(uuid.uuid4()),
-                        "title": name,
-                        "section": "AcroForm",
-                        "content": content,
-                        "source": pdf_url,
-                        "date_published": None,
-                        "date_scraped": date_scraped,
-                        "granularity": "field-level"
-                    })
-                except Exception:
-                    continue
+                field_uuid = str(uuid.uuid4())
+                # meta might be a dict: look for '/V' or 'V' or direct string
+                value = ""
+                if isinstance(meta, dict):
+                    # common keys: '/V', 'V'
+                    value = meta.get('/V') or meta.get('V') or meta.get('value') or ""
+                    if isinstance(value, bytes):
+                        value = value.decode('utf-8', errors='ignore')
+                else:
+                    # sometimes meta is the string value
+                    value = str(meta)
+                content = value if value else str(name)
+                acro_entries.append({
+                    "id": str(uuid.uuid4()),
+                    "title": name,
+                    "section": "AcroForm",
+                    "content": content,
+                    "source": pdf_url,
+                    "date_published": None,
+                    "date_scraped": date_scraped,
+                    "granularity": "field-level"
+                })
 
             if acro_entries:
                 print(f"✅ Extracted {len(acro_entries)} AcroForm fields from {pdf_url}")

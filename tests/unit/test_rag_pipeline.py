@@ -1,10 +1,29 @@
 """Unit tests for RAG pipeline module."""
 import pytest
 import json
+import os
 from unittest.mock import MagicMock, patch, ANY
 import sys
 sys.path.insert(0, 'src')
 sys.path.insert(0, 'src/model')
+
+
+@pytest.mark.unit
+class TestModuleConfiguration:
+    """Tests for module-level configuration."""
+
+    @patch.dict(os.environ, {'RERANK_API_VERSION': 'invalid'})
+    def test_rerank_api_version_invalid(self):
+        """Test RERANK_API_VERSION with invalid value falls back to 2."""
+        # Force module reload to trigger the configuration code
+        import importlib
+        if 'model.rag_pipeline' in sys.modules:
+            importlib.reload(sys.modules['model.rag_pipeline'])
+        else:
+            import model.rag_pipeline
+        
+        from model.rag_pipeline import RERANK_API_VERSION
+        assert RERANK_API_VERSION == 2
 
 
 @pytest.mark.unit
@@ -35,6 +54,43 @@ class TestGetDbConnection:
         
         assert conn is not None
         mock_connect.assert_called_once()
+
+
+@pytest.mark.unit
+class TestTopValues:
+    """Tests for _top_values helper function."""
+
+    def test_top_values_basic(self, mock_env_vars):
+        """Test _top_values returns most common values."""
+        from model.rag_pipeline import _top_values
+        
+        rows = [
+            ('id1', 'content1', 'IRCC', 'title1', 0.9),
+            ('id2', 'content2', 'IRCC', 'title2', 0.8),
+            ('id3', 'content3', 'CIC', 'title3', 0.7),
+            ('id4', 'content4', 'IRCC', 'title4', 0.6)
+        ]
+        
+        # Get top 2 sources (index 2)
+        result = _top_values(rows, 2, 2)
+        
+        assert len(result) <= 2
+        assert 'IRCC' in result  # Most common
+
+    def test_top_values_with_empty(self, mock_env_vars):
+        """Test _top_values filters out empty values."""
+        from model.rag_pipeline import _top_values
+        
+        rows = [
+            ('id1', 'content1', 'IRCC', 'title1', 0.9),
+            ('id2', 'content2', '', 'title2', 0.8),
+            ('id3', 'content3', None, 'title3', 0.7),
+        ]
+        
+        result = _top_values(rows, 2, 5)
+        
+        # Should only include non-empty 'IRCC'
+        assert result == ['IRCC']
 
 
 @pytest.mark.unit
@@ -110,6 +166,26 @@ class TestGenerateAnswer:
         
         assert isinstance(answer, str)
         assert len(answer) > 0
+
+    @patch('model.rag_pipeline.bedrock_runtime')
+    def test_generate_answer_unexpected_format(self, mock_bedrock, mock_env_vars):
+        """Test generate_answer with unexpected response format."""
+        from model.rag_pipeline import generate_answer
+        
+        # Mock response with unexpected format (missing text type)
+        mock_response_body = {
+            'content': [
+                {'type': 'image', 'data': 'some_data'}
+            ]
+        }
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(mock_response_body).encode()
+        mock_bedrock.invoke_model.return_value = {'body': mock_response}
+        
+        with pytest.raises(ValueError) as exc_info:
+            generate_answer("Test prompt")
+        
+        assert "Unexpected Claude response format" in str(exc_info.value)
 
 
 @pytest.mark.unit
@@ -232,6 +308,18 @@ class TestHandler:
         
         assert result['statusCode'] == 400
 
+    def test_handler_malformed_json_body(self, mock_env_vars):
+        """Test handler with malformed JSON in body."""
+        from model.rag_pipeline import handler
+        
+        event = {'body': '{invalid json'}
+        result = handler(event, None)
+        
+        # Should handle JSON parse error gracefully and treat as missing query
+        assert result['statusCode'] == 400
+        body = json.loads(result['body'])
+        assert 'error' in body
+
     @patch('model.rag_pipeline.get_db_connection')
     def test_handler_db_error(self, mock_db, sample_query_event, mock_lambda_context, mock_env_vars):
         """Test handler with database error."""
@@ -282,6 +370,14 @@ class TestRerankChunks:
         if len(reranked) > 1:
             assert reranked[0][0] == 'chunk-2'  # Original index 1
 
+    def test_rerank_chunks_empty(self, mock_env_vars):
+        """Test rerank with empty chunks list."""
+        from model.rag_pipeline import rerank_chunks
+        
+        result = rerank_chunks("test query", [])
+        
+        assert result == []
+
     def test_rerank_chunks_fallback(self, mock_env_vars):
         """Test rerank fallback on error."""
         from model.rag_pipeline import rerank_chunks
@@ -299,6 +395,41 @@ class TestRerankChunks:
             # Should fall back to original order
             assert len(reranked) > 0
             assert reranked == chunks[:len(reranked)]
+
+    @patch('model.rag_pipeline.bedrock_runtime')
+    def test_rerank_chunks_partial_results(self, mock_bedrock, mock_env_vars):
+        """Test rerank when API returns fewer results than input chunks."""
+        from model.rag_pipeline import rerank_chunks
+        
+        # 5 input chunks
+        chunks = [
+            ('chunk-1', 'Content 1', 'source-1', 'title-1', 0.95),
+            ('chunk-2', 'Content 2', 'source-2', 'title-2', 0.90),
+            ('chunk-3', 'Content 3', 'source-3', 'title-3', 0.85),
+            ('chunk-4', 'Content 4', 'source-4', 'title-4', 0.80),
+            ('chunk-5', 'Content 5', 'source-5', 'title-5', 0.75)
+        ]
+        
+        # Rerank only returns 3 results (missing chunks 3 and 4)
+        rerank_response = {
+            'results': [
+                {'index': 1, 'relevance_score': 0.98},
+                {'index': 0, 'relevance_score': 0.92},
+                {'index': 4, 'relevance_score': 0.88}
+            ]
+        }
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(rerank_response).encode()
+        mock_bedrock.invoke_model.return_value = {'body': mock_response}
+        
+        reranked = rerank_chunks("test query", chunks)
+        
+        # Should have filled in missing chunks using fallback loop
+        assert len(reranked) > 3
+        # First three should be from rerank results
+        assert reranked[0][0] == 'chunk-2'
+        assert reranked[1][0] == 'chunk-1'
+        assert reranked[2][0] == 'chunk-5'
 
 
 @pytest.mark.unit
@@ -326,6 +457,14 @@ class TestExpandViaFacets:
         assert isinstance(extras, list)
         # Should return additional chunks
         assert len(extras) >= 0
+
+    def test_expand_via_facets_empty_seed(self, mock_env_vars):
+        """Test facet expansion with empty seed rows."""
+        from model.rag_pipeline import expand_via_facets
+        
+        result = expand_via_facets(None, [], [0.1] * 1536, extra_limit=5)
+        
+        assert result == []
 
 
 class TestBedrockEdgeCases:
@@ -372,31 +511,3 @@ class TestBedrockEdgeCases:
         assert "Unexpected error" in str(exc_info.value)
         # Should only try once - no retries for unexpected errors
         assert mock_bedrock.invoke_model.call_count == 1
-
-
-class TestRerankChunks:
-    """Tests for rerank_chunks function."""
-    
-    @patch.dict('os.environ', {'RERANK_ENABLE': 'false'})
-    def test_rerank_disabled(self):
-        """Test rerank_chunks when RERANK_ENABLE is false."""
-        from model.rag_pipeline import rerank_chunks
-        
-        # Import after patching environment to ensure RERANK_ENABLE is loaded
-        import importlib
-        import model.rag_pipeline
-        importlib.reload(model.rag_pipeline)
-        from model.rag_pipeline import rerank_chunks
-        
-        chunks = [
-            ('id1', 'content1', 'source1', 'title1', 0.9),
-            ('id2', 'content2', 'source2', 'title2', 0.8),
-            ('id3', 'content3', 'source3', 'title3', 0.7),
-        ]
-        
-        # Should return chunks unchanged (up to CONTEXT_MAX_CHUNKS)
-        result = rerank_chunks('test query', chunks)
-        
-        # Verify it returns the original chunks
-        assert len(result) <= len(chunks)
-        assert result[0][0] == 'id1'  # First chunk ID preserved

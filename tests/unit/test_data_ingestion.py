@@ -585,3 +585,32 @@ class TestErrorHandlingPaths:
         assert result['date_published'] is None
         assert result['date_scraped'] == '2024-01-15'
         assert result['content'] == 'Test content'
+
+
+class TestGetEmbeddingEdgeCases:
+    """Tests for edge cases in get_embedding function."""
+
+    @patch('data_ingestion.bedrock_runtime')
+    def test_get_embedding_with_long_text(self, mock_bedrock, mock_env_vars):
+        """Test get_embedding truncates text longer than 8000 characters."""
+        from data_ingestion import get_embedding
+        
+        # Create a very long text (>8000 chars)
+        long_text = "a" * 10000
+        
+        mock_response = {
+            'body': MagicMock(read=lambda: json.dumps({'embedding': [0.1] * 1536}).encode())
+        }
+        mock_bedrock.invoke_model.return_value = mock_response
+        
+        # Call get_embedding with long text
+        embedding = get_embedding(long_text)
+        
+        # Verify it succeeded and truncated (lines 321-322 covered)
+        assert embedding is not None
+        assert len(embedding) == 1536
+        
+        # Verify the text was truncated before being sent to Bedrock
+        call_args = mock_bedrock.invoke_model.call_args
+        request_body = json.loads(call_args[1]['body'])
+        assert len(request_body['inputText']) <= 8000
