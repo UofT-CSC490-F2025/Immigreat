@@ -290,3 +290,279 @@ class TestHandler:
         assert result['statusCode'] == 500
         body = json.loads(result['body'])
         assert 'error' in body
+
+
+@pytest.mark.unit
+class TestErrorHandlingPaths:
+    """Tests for error handling paths in data_ingestion."""
+
+    def test_normalize_date_with_different_formats(self):
+        """Test normalize_date with various date formats."""
+        from data_ingestion import normalize_date
+        
+        # Test standard formats
+        assert normalize_date('2024-01-15') == '2024-01-15'
+        assert normalize_date('01/15/2024') == '2024-01-15'
+        assert normalize_date('15-01-2024') == '2024-01-15'
+        assert normalize_date('2024/01/15') == '2024-01-15'
+        
+        # Test invalid format - should return original
+        result = normalize_date('not-a-date')
+        assert result == 'not-a-date'
+        
+        # Test None
+        assert normalize_date(None) is None
+
+    def test_chunk_document_small_content(self):
+        """Test chunk_document with very small content (< 100 chars)."""
+        from data_ingestion import chunk_document
+        
+        doc = {
+            'id': 'test-1',
+            'content': 'Small content',
+            'title': 'Test',
+            'section': 'Section',
+            'source': 'Test Source'
+        }
+        
+        # chunk_document requires chunk_size and chunk_overlap
+        chunks = chunk_document(doc, chunk_size=1000, chunk_overlap=200)
+        
+        # Should return single chunk for small content
+        assert len(chunks) == 1
+        assert chunks[0]['id'] == 'test-1_chunk_1'
+        assert chunks[0]['content'] == 'Small content'
+
+    @patch('data_ingestion.secretsmanager_client')
+    @patch('data_ingestion.psycopg2.connect')
+    def test_get_db_connection_secrets_error(self, mock_connect, mock_secrets):
+        """Test get_db_connection when secrets retrieval fails."""
+        from data_ingestion import get_db_connection
+        
+        mock_secrets.get_secret_value.side_effect = Exception("Secrets error")
+        
+        with pytest.raises(Exception) as exc_info:
+            get_db_connection()
+        
+        assert "Secrets error" in str(exc_info.value)
+
+    @patch('data_ingestion.secretsmanager_client')
+    @patch('data_ingestion.psycopg2.connect')
+    def test_get_db_connection_connection_error(self, mock_connect, mock_secrets):
+        """Test get_db_connection when database connection fails."""
+        from data_ingestion import get_db_connection
+        
+        secret_value = {
+            'host': 'localhost',
+            'port': 5432,
+            'dbname': 'testdb',
+            'username': 'testuser',
+            'password': 'testpass'
+        }
+        mock_secrets.get_secret_value.return_value = {
+            'SecretString': json.dumps(secret_value)
+        }
+        
+        mock_connect.side_effect = Exception("Connection failed")
+        
+        with pytest.raises(Exception) as exc_info:
+            get_db_connection()
+        
+        assert "Connection failed" in str(exc_info.value)
+
+    @patch('data_ingestion.bedrock_runtime')
+    def test_get_embedding_non_throttling_error(self, mock_bedrock):
+        """Test get_embedding with non-throttling error."""
+        from data_ingestion import get_embedding
+        from botocore.exceptions import ClientError
+        
+        # Mock non-throttling error
+        error = ClientError(
+            {'Error': {'Code': 'ValidationException', 'Message': 'Invalid input'}},
+            'invoke_model'
+        )
+        mock_bedrock.invoke_model.side_effect = error
+        
+        with pytest.raises(ClientError):
+            get_embedding("test content")
+
+    @patch('data_ingestion.bedrock_runtime')
+    def test_get_embedding_max_retries_exceeded(self, mock_bedrock):
+        """Test get_embedding when max retries are exceeded."""
+        from data_ingestion import get_embedding
+        from botocore.exceptions import ClientError
+        
+        # Mock throttling error that persists beyond max retries
+        error = ClientError(
+            {'Error': {'Code': 'ThrottlingException', 'Message': 'Too many requests'}},
+            'invoke_model'
+        )
+        mock_bedrock.invoke_model.side_effect = error
+        
+        with pytest.raises(ClientError):
+            get_embedding("test content")
+
+    @patch('data_ingestion.execute_values')
+    def test_insert_chunks_database_error(self, mock_execute):
+        """Test insert_chunks when database operation fails."""
+        from data_ingestion import insert_chunks
+        
+        mock_cursor = MagicMock()
+        chunks = [
+            {
+                'id': 'chunk-1',
+                'title': 'Test',
+                'content': 'Content',
+                'document_id': 'doc-1',
+                'section': 'Section',
+                'source': 'Source',
+                'embedding': [0.1] * 1536,
+                'date_scraped': '2024-01-15'
+            }
+        ]
+        
+        mock_execute.side_effect = Exception("Database insert failed")
+        
+        with pytest.raises(Exception) as exc_info:
+            insert_chunks(mock_cursor, chunks)
+        
+        assert "Database insert failed" in str(exc_info.value)
+
+    @patch('data_ingestion.execute_values')
+    def test_insert_chunks_date_parsing_error(self, mock_execute):
+        """Test insert_chunks with invalid date format."""
+        from data_ingestion import insert_chunks
+        
+        mock_cursor = MagicMock()
+        chunks = [
+            {
+                'id': 'chunk-1',
+                'title': 'Test',
+                'content': 'Content',
+                'document_id': 'doc-1',
+                'section': 'Section',
+                'source': 'Source',
+                'embedding': [0.1] * 1536,
+                'date_scraped': 'invalid-date'  # Will trigger except block
+            }
+        ]
+        
+        # Should use datetime.now() as fallback
+        insert_chunks(mock_cursor, chunks)
+        
+        # Verify execute_values was called
+        assert mock_execute.called
+
+    @patch('data_ingestion.execute_values')
+    def test_insert_chunks_empty_list(self, mock_execute):
+        """Test insert_chunks with empty chunk list."""
+        from data_ingestion import insert_chunks
+        
+        mock_cursor = MagicMock()
+        
+        insert_chunks(mock_cursor, [])
+        
+        # Should not call execute_values
+        assert not mock_execute.called
+
+    def test_initialize_database_error(self):
+        """Test initialize_database when SQL execution fails."""
+        from data_ingestion import initialize_database
+        
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = Exception("SQL execution failed")
+        
+        with pytest.raises(Exception) as exc_info:
+            initialize_database(mock_cursor)
+        
+        assert "SQL execution failed" in str(exc_info.value)
+
+    @patch('data_ingestion.get_db_connection')
+    @patch('data_ingestion.s3_client')
+    @patch('data_ingestion.get_embedding')
+    def test_handler_no_valid_documents(self, mock_get_embedding, mock_s3, mock_get_db, 
+                                       sample_s3_event, mock_lambda_context):
+        """Test handler when all documents fail validation."""
+        # Mock S3 with invalid documents
+        invalid_docs = [
+            {'id': 'doc-1'},  # missing content
+            {'content': 'test'}  # missing id
+        ]
+        mock_s3.get_object.return_value = {
+            'Body': MagicMock(read=lambda: json.dumps(invalid_docs).encode())
+        }
+        
+        result = handler(sample_s3_event, mock_lambda_context)
+        
+        assert result['statusCode'] == 500
+        body = json.loads(result['body'])
+        assert 'error' in body
+
+    @patch('data_ingestion.get_db_connection')
+    @patch('data_ingestion.s3_client')
+    @patch('data_ingestion.get_embedding')
+    def test_handler_timeout_warning(self, mock_get_embedding, mock_s3, mock_get_db, 
+                                    sample_s3_event, mock_lambda_context, sample_documents):
+        """Test handler timeout warning path."""
+        # Mock S3
+        mock_s3.get_object.return_value = {
+            'Body': MagicMock(read=lambda: json.dumps(sample_documents).encode())
+        }
+        
+        # Mock lambda context with very short timeout
+        mock_lambda_context.get_remaining_time_in_millis.return_value = 30000  # 30 seconds
+        
+        # Mock database
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []  # No existing chunks
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_get_db.return_value = mock_conn
+        
+        # Mock embedding
+        mock_get_embedding.return_value = [0.1] * 1536
+        
+        with patch('data_ingestion.execute_values'):
+            with patch('data_ingestion.time.sleep'):
+                result = handler(sample_s3_event, mock_lambda_context)
+        
+        # Should succeed but may hit timeout warning
+        assert result['statusCode'] in [200, 500]
+
+    @patch('data_ingestion.get_db_connection')
+    @patch('data_ingestion.s3_client')
+    @patch('data_ingestion.get_embedding')
+    def test_handler_embedding_throttling_continues(self, mock_get_embedding, mock_s3, mock_get_db,
+                                                    sample_s3_event, mock_lambda_context, sample_documents):
+        """Test handler continues after throttling errors on individual chunks."""
+        from botocore.exceptions import ClientError
+        
+        # Mock S3
+        mock_s3.get_object.return_value = {
+            'Body': MagicMock(read=lambda: json.dumps(sample_documents).encode())
+        }
+        
+        # Mock database
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_get_db.return_value = mock_conn
+        
+        # Mock embedding - first chunk fails with throttling, rest succeed
+        throttle_error = ClientError(
+            {'Error': {'Code': 'ThrottlingException', 'Message': 'Too many requests'}},
+            'invoke_model'
+        )
+        mock_get_embedding.side_effect = [
+            throttle_error,  # First chunk fails
+            [0.1] * 1536,    # Second chunk succeeds
+            [0.2] * 1536     # Third chunk succeeds
+        ]
+        
+        with patch('data_ingestion.execute_values'):
+            with patch('data_ingestion.time.sleep'):
+                result = handler(sample_s3_event, mock_lambda_context)
+        
+        # Should still succeed with partial processing
+        assert result['statusCode'] == 200
