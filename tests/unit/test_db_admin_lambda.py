@@ -167,3 +167,45 @@ class TestDbAdminLambda:
         assert result['statusCode'] == 500
         body = json.loads(result['body'])
         assert 'error' in body
+
+    @patch('model.db_admin_lambda._get_db_conn')
+    def test_first_row_no_columns(self, mock_get_conn, mock_env_vars):
+        """Test _first_row with no columns specified (uses SELECT *)."""
+        from model.db_admin_lambda import _first_row
+        
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.description = [('id',), ('name',)]
+        mock_cursor.fetchone.return_value = (1, 'test')
+        # Mock both the connection and cursor context managers
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_conn.cursor.return_value.__exit__.return_value = None
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = None
+        mock_get_conn.return_value = mock_conn
+        
+        # Call without columns parameter
+        result = _first_row('test_table', columns=None)
+        
+        assert result['count'] == 1
+        assert result['row'] == {'id': 1, 'name': 'test'}
+
+    @patch('model.db_admin_lambda._get_db_conn')
+    def test_first_row_empty_table(self, mock_get_conn, mock_env_vars):
+        """Test _first_row when table is empty (fetchone returns None)."""
+        from model.db_admin_lambda import _first_row
+        
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None  # Empty table
+        # Mock both the connection and cursor context managers
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_conn.cursor.return_value.__exit__.return_value = None
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = None
+        mock_get_conn.return_value = mock_conn
+        
+        result = _first_row('empty_table')
+        
+        assert result['row'] is None
+        assert result['count'] == 0

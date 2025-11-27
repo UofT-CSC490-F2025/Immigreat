@@ -126,23 +126,7 @@ def extract_xfa_fields_from_xml_root(root: ET.Element, pdf_url: str, date_scrape
     else:
         ns = {}
 
-    # We want to traverse subform hierarchy while preserving section path (full path).
-    def recurse(node: ET.Element, section_path: str = "MainForm"):
-        # if node is subform with a name, extend path
-        node_name = node.attrib.get("name")
-        current_section = section_path
-        if node.tag.endswith("subform") or (node.tag.lower().endswith("subform")):
-            if node_name:
-                current_section = section_path + " > " + node_name if section_path else node_name
-
-        # find direct child fields (not using .// to avoid duplicates across nested subforms)
-        # We will search for child field elements under node (any depth but avoid going past nested subforms)
-        for field in node.findall(".//", ns):
-            # The prior .findall(".//") returns lots; instead iterate explicit fields under node tree but stop descending into nested subforms
-            # Simpler: find all field elements starting at this node but ensure that their ancestor subform (closest) is this node
-            pass
-
-    # Simpler robust approach: collect all <field> anywhere and then determine their nearest ancestor subform name by walking up.
+    # Collect all <field> elements and determine their nearest ancestor subform name by walking up.
     # Build mapping of element -> parent using manual tree walk to enable ancestor lookup.
     parent_map = {c: p for p in root.iter() for c in p}
     # collect all field elements
@@ -264,26 +248,17 @@ def extract_fields_from_pdf(pdf_url: str) -> list:
         # list style (alternating name, bytes)
         if isinstance(xfa, list):
             for i in range(0, len(xfa), 2):
-                # some entries are bytes; decode safely
-                try:
-                    name = xfa[i].decode("utf-8", errors="ignore") if isinstance(xfa[i], (bytes, bytearray)) else str(xfa[i])
-                except Exception:
-                    name = str(xfa[i])
+                # Decode XFA entries (errors='ignore' ensures decode won't raise)
+                name = xfa[i].decode("utf-8", errors="ignore") if isinstance(xfa[i], (bytes, bytearray)) else str(xfa[i])
                 blob = xfa[i+1]
-                try:
-                    blob_text = blob.decode("utf-8", errors="ignore") if isinstance(blob, (bytes, bytearray)) else str(blob)
-                    xml_candidates.append((name, blob_text))
-                except Exception:
-                    continue
+                blob_text = blob.decode("utf-8", errors="ignore") if isinstance(blob, (bytes, bytearray)) else str(blob)
+                xml_candidates.append((name, blob_text))
 
         # dict style
         elif isinstance(xfa, dict):
             for k, v in xfa.items():
-                try:
-                    txt = v if isinstance(v, str) else v.decode("utf-8", errors="ignore")
-                    xml_candidates.append((k, txt))
-                except Exception:
-                    continue
+                txt = v if isinstance(v, str) else v.decode("utf-8", errors="ignore")
+                xml_candidates.append((k, txt))
 
         # prioritize 'form' packet if present
         form_candidate = next((t for t in xml_candidates if t[0].lower() == "form"), None)
@@ -313,15 +288,7 @@ def extract_fields_from_pdf(pdf_url: str) -> list:
     acro_entries = []
     try:
         # pypdf's get_fields may return dict or None
-        fields = None
-        try:
-            fields = reader.get_fields()
-        except Exception:
-            # some pypdf versions: try get_form_text_fields
-            try:
-                fields = reader.get_form_text_fields()
-            except Exception:
-                fields = None
+        fields = reader.get_fields() if hasattr(reader, 'get_fields') else None
 
         if fields:
             # fields is a dict mapping fieldname -> field dict or value

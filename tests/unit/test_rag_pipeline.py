@@ -326,3 +326,77 @@ class TestExpandViaFacets:
         assert isinstance(extras, list)
         # Should return additional chunks
         assert len(extras) >= 0
+
+
+class TestBedrockEdgeCases:
+    """Tests for rare Bedrock invocation edge cases."""
+    
+    @patch('model.rag_pipeline.bedrock_runtime')
+    @patch('model.rag_pipeline.time.sleep')  # Mock sleep to speed up tests
+    def test_invoke_bedrock_max_retries_throttling(self, mock_sleep, mock_bedrock):
+        """Test that max retries are exhausted with ThrottlingException."""
+        from model.rag_pipeline import invoke_bedrock_with_backoff
+        from botocore.exceptions import ClientError
+        
+        throttle_error = ClientError(
+            {'Error': {'Code': 'ThrottlingException', 'Message': 'Rate exceeded'}},
+            'invoke_model'
+        )
+        mock_bedrock.invoke_model.side_effect = throttle_error
+        
+        # Should raise after max retries
+        with pytest.raises(ClientError) as exc_info:
+            invoke_bedrock_with_backoff(
+                'anthropic.claude-3-5-sonnet-20240620-v1:0',
+                '{"prompt": "test"}'
+            )
+        
+        assert exc_info.value.response['Error']['Code'] == 'ThrottlingException'
+        # Should have tried 10 times (default MAX_BEDROCK_RETRIES)
+        assert mock_bedrock.invoke_model.call_count == 10
+    
+    @patch('model.rag_pipeline.bedrock_runtime')
+    def test_invoke_bedrock_unexpected_exception(self, mock_bedrock):
+        """Test that unexpected exceptions are raised immediately."""
+        from model.rag_pipeline import invoke_bedrock_with_backoff
+        
+        mock_bedrock.invoke_model.side_effect = RuntimeError("Unexpected error")
+        
+        # Should raise immediately without retries
+        with pytest.raises(RuntimeError) as exc_info:
+            invoke_bedrock_with_backoff(
+                'anthropic.claude-3-5-sonnet-20240620-v1:0',
+                '{"prompt": "test"}'
+            )
+        
+        assert "Unexpected error" in str(exc_info.value)
+        # Should only try once - no retries for unexpected errors
+        assert mock_bedrock.invoke_model.call_count == 1
+
+
+class TestRerankChunks:
+    """Tests for rerank_chunks function."""
+    
+    @patch.dict('os.environ', {'RERANK_ENABLE': 'false'})
+    def test_rerank_disabled(self):
+        """Test rerank_chunks when RERANK_ENABLE is false."""
+        from model.rag_pipeline import rerank_chunks
+        
+        # Import after patching environment to ensure RERANK_ENABLE is loaded
+        import importlib
+        import model.rag_pipeline
+        importlib.reload(model.rag_pipeline)
+        from model.rag_pipeline import rerank_chunks
+        
+        chunks = [
+            ('id1', 'content1', 'source1', 'title1', 0.9),
+            ('id2', 'content2', 'source2', 'title2', 0.8),
+            ('id3', 'content3', 'source3', 'title3', 0.7),
+        ]
+        
+        # Should return chunks unchanged (up to CONTEXT_MAX_CHUNKS)
+        result = rerank_chunks('test query', chunks)
+        
+        # Verify it returns the original chunks
+        assert len(result) <= len(chunks)
+        assert result[0][0] == 'id1'  # First chunk ID preserved

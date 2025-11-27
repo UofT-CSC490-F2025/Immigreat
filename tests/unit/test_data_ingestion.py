@@ -566,3 +566,22 @@ class TestErrorHandlingPaths:
         
         # Should still succeed with partial processing
         assert result['statusCode'] == 200
+
+    def test_clean_document_with_none_date(self):
+        """Test clean_document handles None date gracefully."""
+        from data_ingestion import clean_document
+        
+        doc = {
+            'id': 'test-1',
+            'content': '  Test content  ',
+            'title': 'Test Title',
+            'date_published': None,  # None date
+            'date_scraped': '2024-01-15'
+        }
+        
+        result = clean_document(doc)
+        
+        # Should handle None date without error
+        assert result['date_published'] is None
+        assert result['date_scraped'] == '2024-01-15'
+        assert result['content'] == 'Test content'

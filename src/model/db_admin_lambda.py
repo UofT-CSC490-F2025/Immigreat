@@ -155,8 +155,6 @@ def handler(event, context):
                 return {"statusCode": 400, "body": json.dumps({"error": "Missing 'table' for first"})}
             order_by = payload.get("order_by")
             columns = payload.get("columns")
-            if columns is not None and not isinstance(columns, list):
-                return {"statusCode": 400, "body": json.dumps({"error": "'columns' must be a list of strings"})}
             result = _first_row(table, order_by=order_by, columns=columns)
             return {"statusCode": 200, "body": json.dumps({"table": table, **result}, default=str)}
         else:
