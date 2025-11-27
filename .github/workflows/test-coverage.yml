@@ -2,9 +2,9 @@ name: Test Coverage
 
 on:
   push:
-    branches: [main, develop, chore/testing]
+    branches: [main, dev]
   pull_request:
-    branches: [main, develop]
+    branches: [main, dev]
   workflow_dispatch:
 
 jobs:
