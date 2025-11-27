@@ -29,6 +29,16 @@ from .constants import (
     DEFAULT_IRCC_OUTPUT
 )
 
+# Expose a module-level symbol so tests can patch it directly.
+# When not provided, we import lazily within render function.
+try:
+    from playwright.sync_api import sync_playwright as _sync_playwright
+except Exception:
+    _sync_playwright = None
+
+# Alias used by tests: they patch scraping.ircc_scraper.sync_playwright
+sync_playwright = _sync_playwright
+
 def is_useful_content(text: str) -> bool:
     """Heuristic filter for meaningful IRCC content."""
     if not text or len(text.strip()) < MIN_CONTENT_LENGTH:  # too short
@@ -46,12 +56,8 @@ def is_useful_content(text: str) -> bool:
             return False
     return True
 
-# Optional Playwright renderer
-try:
-    from playwright.sync_api import sync_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except Exception:
-    PLAYWRIGHT_AVAILABLE = False
+# Optional Playwright availability based on module-level alias
+PLAYWRIGHT_AVAILABLE = sync_playwright is not None
 
 # --- Configuration ---
 
@@ -96,9 +102,19 @@ def requests_get(session, url):
     return session.get(url, headers=headers, timeout=REQUESTS_TIMEOUT)
 
 def render_with_playwright(url):
-    """Render page with Playwright and return HTML (requires playwright installed)."""
+    """Render page with Playwright and return HTML (requires playwright installed).
+
+    Uses module-level sync_playwright for easier test patching; falls back to lazy import if missing.
+    """
     if not PLAYWRIGHT_AVAILABLE:
         raise RuntimeError("Playwright not installed")
+    global sync_playwright
+    if sync_playwright is None:
+        try:
+            from playwright.sync_api import sync_playwright as _local_sync
+            sync_playwright = _local_sync
+        except Exception as e:
+            raise RuntimeError("Playwright not installed") from e
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         page = browser.new_page(user_agent=USER_AGENT, timeout=BROWSER_TIMEOUT)
