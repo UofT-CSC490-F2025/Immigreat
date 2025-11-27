@@ -56,6 +56,14 @@ def invoke_bedrock_with_backoff(model_id, body, content_type="application/json",
     
     last_exception = None
     
+    # Tests referencing this block:
+    # - tests/unit/test_rag_pipeline.py::test_bedrock_invoke_success
+    #   Positive path: first call succeeds, returns response immediately.
+    # - tests/unit/test_rag_pipeline_advanced.py::test_bedrock_throttling_retries
+    #   Edge/failure mode: ThrottlingException triggers exponential backoff and eventual success.
+    # - tests/unit/test_rag_pipeline_advanced.py::test_bedrock_non_throttling_raises
+    #   Failure mode: Non-throttling error raises immediately without retry.
+    # Rationale: Bedrock can throttle or return hard errors; retrying only on throttling preserves reliability while surfacing real faults quickly.
     for attempt in range(max_retries):
         try:
             response = bedrock_runtime.invoke_model(
@@ -95,6 +103,12 @@ def invoke_bedrock_with_backoff(model_id, body, content_type="application/json",
                 raise
 
 def get_db_connection():
+    # Tests referencing this block:
+    # - tests/unit/test_rag_pipeline.py::test_get_db_connection_uses_secret
+    #   Positive: Secrets Manager returns JSON; psycopg2.connect called with parsed creds.
+    # - tests/unit/test_rag_pipeline_edges.py::test_get_db_connection_missing_fields_raises_keyerror
+    #   Negative: missing required secret keys -> KeyError; connect not attempted.
+    # Rationale: Secrets can drift; fail-fast prevents partial/incorrect DB connections and highlights config issues early.
     secret = secretsmanager_client.get_secret_value(SecretId=PGVECTOR_SECRET_ARN)
     creds = json.loads(secret['SecretString'])
     return psycopg2.connect(
@@ -105,6 +119,12 @@ def get_db_connection():
 
 def get_embedding(text: str):
     """Generate embedding for text using Bedrock with retry logic."""
+    # Tests:
+    # - tests/unit/test_rag_pipeline.py::test_get_embedding_success
+    #   Positive: invokes embed model and returns parsed embedding.
+    # - tests/unit/test_rag_pipeline_advanced.py::test_get_embedding_throttling_backoff
+    #   Edge: throttling triggers backoff in invoke_bedrock_with_backoff.
+    # Rationale: Embedding generation must be resilient under transient throttling to avoid cascading failures upstream.
     body = json.dumps({"inputText": text})
     resp = invoke_bedrock_with_backoff(
         model_id=EMBEDDING_MODEL,
@@ -113,6 +133,12 @@ def get_embedding(text: str):
     return json.loads(resp["body"].read())["embedding"]
 
 def retrieve_similar_chunks(conn, embedding, k=5):
+    # Tests:
+    # - tests/unit/test_rag_pipeline.py::test_retrieve_similar_chunks_returns_rows
+    #   Positive: cursor returns rows with expected tuple shape.
+    # - tests/unit/test_rag_pipeline_edges.py::test_retrieve_similar_chunks_empty_rows_end_to_end_still_200
+    #   Edge: empty result set propagates to handler; still returns 200 with empty sources.
+    # Rationale: When no matches are found, API contract remains stable with graceful empty outputs.
     cur = conn.cursor()
     cur.execute("""
         SELECT id, content, source, title, 1 - (embedding <=> %s::vector) AS similarity
@@ -126,6 +152,9 @@ def retrieve_similar_chunks(conn, embedding, k=5):
 
 def _top_values(rows, idx, n):
     """Return up to n most common non-empty values from rows at column idx."""
+    # Tests:
+    # - tests/unit/test_rag_pipeline.py::test_top_values_filters_empty
+    #   Edge: empty values filtered; counts computed correctly.
     vals = [r[idx] for r in rows if r[idx]]
     return [v for v, _ in Counter(vals).most_common(n)]
 
@@ -138,6 +167,14 @@ def expand_via_facets(conn, seed_rows, query_embedding, extra_limit=5):
     - Pull additional chunks that match any of these facet values, ranked by similarity to the query.
     - Exclude already selected ids.
     """
+    # Tests:
+    # - tests/unit/test_rag_pipeline.py::test_expand_via_facets_empty_seed
+    #   Edge: no seed_rows -> returns [].
+    # - tests/unit/test_rag_pipeline.py::test_expand_via_facets_with_section_toggle
+    #   Edge: FE_RAG_FACETS includes 'section' vs not; ensures clause and params handled.
+    # - tests/unit/test_rag_pipeline_edges.py::test_expand_via_facets_empty_facets_env_returns_no_extras
+    #   Edge: empty FE_RAG_FACETS env yields no extras; SQL executes with empty arrays.
+    # Rationale: Config toggles should not break SQL execution; disabling facets must produce a safe no-op.
     if not seed_rows:
         return []
 
@@ -192,6 +229,9 @@ def expand_via_facets(conn, seed_rows, query_embedding, extra_limit=5):
 
     full_sql = sql.format(section_clause=section_clause)
 
+    # Tests:
+    # - tests/unit/test_rag_pipeline.py::test_expand_via_facets_returns_extras
+    #   Positive: executes SQL and fetches extras.
     with conn.cursor() as cur:
         cur.execute(full_sql, params)
         extras = cur.fetchall()
@@ -217,6 +257,14 @@ def generate_answer(prompt: str) -> str:
         ]
     }
 
+    # Tests:
+    # - tests/unit/test_rag_pipeline.py::test_generate_answer_success
+    #   Positive: returns text from first content block.
+    # - tests/unit/test_rag_pipeline_advanced.py::test_generate_answer_unexpected_format_raises
+    #   Failure mode: response lacks expected shape -> raises ValueError.
+    # - tests/unit/test_rag_pipeline_edges.py::test_generate_answer_non_text_blocks_raises_value_error
+    #   Failure mode: non-text content blocks -> raise ValueError.
+    # Rationale: Non-text content (e.g., tool calls/images) should surface as errors to avoid silently returning empty or misleading answers.
     try:
         response = invoke_bedrock_with_backoff(
             model_id=CLAUDE_MODEL_ID,
@@ -242,6 +290,16 @@ def rerank_chunks(query: str, chunks):
     chunks: list of tuples (id, content, source, title, similarity)
     Returns reordered list (may truncate to CONTEXT_MAX_CHUNKS).
     """
+    # Tests:
+    # - tests/unit/test_rag_pipeline.py::test_rerank_chunks_empty
+    #   Edge: no chunks -> returns [].
+    # - tests/unit/test_rag_pipeline.py::test_rerank_chunks_valid_results
+    #   Positive: orders by relevance_score and truncates to CONTEXT_MAX_CHUNKS.
+    # - tests/unit/test_rag_pipeline_advanced.py::test_rerank_chunks_malformed_results_fallback
+    #   Failure mode: missing/bad indices -> fallback to similarity order.
+    # - tests/unit/test_rag_pipeline_edges.py::test_rerank_chunks_duplicate_and_invalid_indices_dedup_and_fallback
+    #   Edge: duplicated and out-of-range indices ignored; fallback fills remaining slots.
+    # Rationale: External rerankers can return noisy indices; dedupe/ignore invalid entries and fill via similarity ensures deterministic top-K.
     if not chunks:
         return []
     try:
@@ -303,6 +361,14 @@ def handler(event, context):
                     user_query = parsed.get('query')
                 except Exception as e:
                     print(f"Failed to parse JSON body: {e}")
+    # Tests:
+    # - tests/unit/test_rag_pipeline.py::test_handler_missing_query_returns_400
+    #   Negative: missing/invalid query -> 400 with CORS.
+    # - tests/unit/test_rag_pipeline.py::test_handler_http_event_parsing
+    #   Positive: parses body JSON to extract query.
+    # - tests/unit/test_rag_pipeline_edges.py::test_handler_invalid_json_body_returns_400
+    #   Negative: invalid JSON in body -> 400 with CORS; parse error logged.
+    # Rationale: Bad client input should produce a predictable 400 with CORS, preventing opaque server errors.
     if not user_query or not isinstance(user_query, str) or not user_query.strip():
         return {
             'statusCode': 400,
@@ -321,6 +387,12 @@ def handler(event, context):
     try:
         # Embedding stage
         t_emb_start = time.time()
+        # Tests:
+        # - tests/unit/test_rag_pipeline.py::test_timings_recorded
+        #   Positive: timings keys (embedding_ms, primary_retrieval_ms, facet_expansion_ms, rerank_ms, llm_ms) present.
+        # - tests/unit/test_rag_pipeline_edges.py::test_retrieve_similar_chunks_empty_rows_end_to_end_still_200
+        #   Edge: empty retrieval -> prompt may be minimal; still returns 200.
+        # Rationale: End-to-end behavior remains consistent even when primary retrieval yields no context.
         query_emb = get_embedding(user_query)
         timings['embedding_ms'] = round((time.time() - t_emb_start) * 1000, 2)
 
@@ -343,6 +415,9 @@ def handler(event, context):
 
         # Rerank (optional)
         t_rerank_start = time.time()
+        # Tests:
+        # - tests/unit/test_rag_pipeline_advanced.py::test_context_max_chunks_enforced
+        #   Edge: CONTEXT_MAX_CHUNKS limit respected after rerank/fallback.
         chunks = rerank_chunks(user_query, chunks)
         timings['rerank_ms'] = round((time.time() - t_rerank_start) * 1000, 2)
         print(f"Final chunk count after rerank + truncation: {len(chunks)}")
@@ -352,6 +427,9 @@ def handler(event, context):
         prompt = f"Context:\n{query_context}\n\nQuestion: {user_query}\nAnswer:"
         print(f"Prompt length: {len(prompt)} characters")
         t_llm_start = time.time()
+        # Tests:
+        # - tests/unit/test_rag_pipeline.py::test_handler_returns_structured_response
+        #   Positive: response contains answer, sources with fields, timings, and 200 status.
         answer = generate_answer(prompt)
         timings['llm_ms'] = round((time.time() - t_llm_start) * 1000, 2)
         print(f"Model answer (full answer): {answer}")
