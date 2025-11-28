@@ -1,8 +1,7 @@
 ### Welcome to Immigreat!
 
 [![Test Coverage](https://github.com/UofT-CSC490-F2025/Immigreat/actions/workflows/test-coverage.yml/badge.svg)](https://github.com/UofT-CSC490-F2025/Immigreat/actions/workflows/test-coverage.yml)
-[![codecov](https://codecov.io/gh/UofT-CSC490-F2025/Immigreat/branch/main/graph/badge.svg)](https://codecov.io/gh/UofT-CSC490-F2025/Immigreat)
-![Coverage](./coverage.svg)
+![Coverage](https://img.shields.io/badge/coverage-96.98%25-brightgreen)
 
 This application is designed to be your new best immigration\* friend!
 
@@ -37,7 +36,7 @@ pytest --cov=src --cov-report=html --cov-report=term
 
 ### Coverage Goals
 
-We aim for **>90% code coverage** across all modules. Current coverage is automatically reported on PRs and updated in this README.
+We aim for **>90% code coverage** across all modules. Current coverage is **96.98%** and automatically reported on PRs.
 
 ### Quick Start
 

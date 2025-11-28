@@ -56,9 +56,21 @@ jobs:
 
           total = data['totals']
           files = data['files']
+          coverage_pct = total['percent_covered']
 
-          print("## Coverage Report")
-          print(f"\n**Total Coverage: {total['percent_covered']:.2f}%**\n")
+          # Determine color based on coverage
+          if coverage_pct >= 80:
+              color = 'brightgreen'
+          elif coverage_pct >= 60:
+              color = 'yellow'
+          else:
+              color = 'red'
+
+          # Create shields.io badge URL
+          badge_url = f"https://img.shields.io/badge/coverage-{coverage_pct:.2f}%25-{color}"
+
+          print("## Coverage Report\n")
+          print(f"![Coverage]({badge_url})\n")
           print("| File | Statements | Missing | Coverage |")
           print("|------|------------|---------|----------|")
 
