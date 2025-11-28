@@ -38,9 +38,73 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=src --cov-report=xml --cov-report=term --cov-report=html
+          pytest --cov=src --cov-report=xml --cov-report=term --cov-report=html --cov-report=json
 
-      # Removed Codecov upload step per request
+      - name: Generate coverage comment
+        if: github.event_name == 'pull_request' && matrix.python-version == '3.13'
+        id: coverage
+        run: |
+          COVERAGE=$(python -c "import json; data=json.load(open('coverage.json')); print(f'{data[\"totals\"][\"percent_covered\"]:.2f}')")
+          echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+
+          # Generate markdown table
+          python << 'EOF' > coverage-comment.md
+          import json
+
+          with open('coverage.json') as f:
+              data = json.load(f)
+
+          total = data['totals']
+          files = data['files']
+
+          print("## Coverage Report")
+          print(f"\n**Total Coverage: {total['percent_covered']:.2f}%**\n")
+          print("| File | Statements | Missing | Coverage |")
+          print("|------|------------|---------|----------|")
+
+          for file_path, file_data in sorted(files.items()):
+              if file_path.startswith('src/'):
+                  name = file_path.replace('src/', '')
+                  stmts = file_data['summary']['num_statements']
+                  missing = file_data['summary']['missing_lines']
+                  covered = file_data['summary']['percent_covered']
+                  print(f"| {name} | {stmts} | {missing} | {covered:.2f}% |")
+          EOF
+
+      - name: Post coverage comment
+        if: github.event_name == 'pull_request' && matrix.python-version == '3.13'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const comment = fs.readFileSync('coverage-comment.md', 'utf8');
+
+            // Find existing comment
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.data.find(comment => 
+              comment.user.type === 'Bot' && comment.body.includes('Coverage Report')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
 
       - name: Generate coverage badge
         if: matrix.python-version == '3.13' && github.ref == 'refs/heads/main'
@@ -54,14 +118,6 @@ jobs:
         with:
           name: coverage-badge
           path: coverage.svg
-
-      - name: Comment coverage on PR
-        if: github.event_name == 'pull_request' && matrix.python-version == '3.13'
-        uses: py-cov-action/python-coverage-comment-action@v3
-        with:
-          GITHUB_TOKEN: ${{ github.token }}
-          MINIMUM_GREEN: 80
-          MINIMUM_ORANGE: 60
 
       - name: Archive coverage report
         if: matrix.python-version == '3.13'
