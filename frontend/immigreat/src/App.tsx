@@ -273,6 +273,7 @@ function App() {
     setCurrentChatId(null)
     chatAPI.resetSession()
     setInput('')
+    setIsLoading(false)  // Clear loading state when starting new chat
   }
 
   const handleSelectChat = (chatId: string) => {
@@ -280,6 +281,8 @@ function App() {
     if (chat) {
       setMessages(chat.messages)
       setCurrentChatId(chat.id)
+      setIsLoading(false)  // Clear loading state when switching chats
+      setInput('')  // Clear input when switching chats
     }
   }
 
@@ -494,11 +497,7 @@ function App() {
                 <div className="mb-6 animate-fadeIn">
                   <div className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-full bg-white dark:bg-gray-800 shadow-md flex items-center justify-center text-xl flex-shrink-0">
-                      <img
-                        src={logo}
-                        alt="Immigreat Logo"
-                        className="w-12 h-12 rounded-full object-cover mix-blend-screen"
-                      />
+                      🍁
                     </div>
                     <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-xl p-5 shadow-sm">
                       <div className="font-semibold text-sm mb-2 text-canada-red-dark dark:text-red-400">
