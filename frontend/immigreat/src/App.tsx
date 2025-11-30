@@ -35,50 +35,54 @@ function App() {
     }
   }, [isDarkMode])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault()
 
-    if (!input.trim() || isLoading) return
+  if (!input.trim() || isLoading) return
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input.trim(),
+  const userMessage: Message = {
+    id: Date.now().toString(),
+    role: 'user',
+    content: input.trim(),
+    timestamp: new Date()
+  }
+
+  setMessages(prev => [...prev, userMessage])
+  setInput('')
+  setIsLoading(true)
+
+  try {
+    console.log('🚀 Sending request:', userMessage.content)
+    const response = await chatAPI.sendMessage(userMessage.content, settings)
+    console.log('✅ Received response:', response)
+    console.log('📝 Answer field:', response.answer)
+    console.log('📦 Full response:', JSON.stringify(response, null, 2))
+
+    const assistantMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      content: response.answer || 'No response received',
       timestamp: new Date()
     }
 
-    setMessages(prev => [...prev, userMessage])
-    setInput('')
-    setIsLoading(true)
+    setMessages(prev => [...prev, assistantMessage])
+  } catch (error) {
+    console.error('❌ Full error object:', error)
+    console.error('❌ Error message:', error instanceof Error ? error.message : 'Unknown error')
+    console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack')
 
-    try {
-      // Call your actual backend API with RAG parameters
-      const response = await chatAPI.sendMessage(userMessage.content, settings)
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        // Handle different response formats from backend
-        content: response.answer || 'No response received',
-        timestamp: new Date()
-      }
-
-      setMessages(prev => [...prev, assistantMessage])
-    } catch (error) {
-      console.error('Error sending message:', error)
-
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: 'Sorry, I encountered an error processing your request. Please try again.',
-        timestamp: new Date()
-      }
-
-      setMessages(prev => [...prev, errorMessage])
-    } finally {
-      setIsLoading(false)
+    const errorMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      timestamp: new Date()
     }
+
+    setMessages(prev => [...prev, errorMessage])
+  } finally {
+    setIsLoading(false)
   }
+}
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
