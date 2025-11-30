@@ -1,5 +1,3 @@
-import os
-import time
 import json
 import boto3
 import requests
@@ -9,8 +7,8 @@ from .training_data.questions import QUESTIONS_DATA        # expected = 1
 from .training_data.questions import NEGATIVE_QUESTIONS    # expected = 0
 
 
-LAMBDA_URL = "https://<your-id>.lambda-url.us-east-1.on.aws/"
-LAMBDA_NAME = "<your-lambda-name>"
+LAMBDA_URL = "https://pym5mhopdyechc5a2pp6eim5mq0otoly.lambda-url.us-east-1.on.aws/"
+LAMBDA_NAME = "rag_pipeline-function-prod"
 
 lambda_client = boto3.client("lambda")
 
@@ -18,7 +16,7 @@ lambda_client = boto3.client("lambda")
 # CALL RAG API
 # -----------------------------
 def call_rag_lambda(query: str, k: int, use_facet: bool, use_rerank: bool) -> dict:
-    r = requests.post(LAMBDA_URL, json={"query": query, "k": k, "use_facet": use_facet, "use_rerank": use_rerank})
+    r = requests.post(LAMBDA_URL, json={"query": query, "k": k, "use_facets": use_facet, "use_rerank": use_rerank})
     r.raise_for_status()
     return r.json()
 
@@ -43,7 +41,9 @@ def evaluate_config(k: int, use_facet: bool, use_rerank: bool, judge: Immigratio
     print(f"\n===== Evaluating (k={k}, facet={use_facet}, rerank={use_rerank}) =====")
 
     for item in dataset:
-        q = item["question"]
+        q = str(item["question"])
+        if not isinstance(q, str) or not q.strip():
+            raise ValueError(f"Invalid question in dataset: {q}")
         expected = item["expected"]
 
         resp = call_rag_lambda(q, k, use_facet, use_rerank)
