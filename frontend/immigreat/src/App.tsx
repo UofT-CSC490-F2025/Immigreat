@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { chatAPI, DEFAULT_SETTINGS } from './services/api'
 import type { ChatSettings } from './services/api'
+import logo from './assets/logo.png'
 
 interface Message {
   id: string
@@ -96,33 +97,41 @@ function App() {
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
       {/* Header */}
-      <header className="bg-gradient-to-r from-canada-red to-canada-red-dark text-white px-8 py-6 shadow-lg relative">
-        <div className="w-full">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="text-4xl animate-bounce-slow">🍁</span>
-            <h1 className="text-3xl font-semibold">Immigreat</h1>
+      <header className="bg-gradient-to-r from-canada-red to-canada-red-dark text-white px-8 py-4 shadow-lg relative">
+        <div className="w-full flex items-center justify-between">
+          {/* Logo and Title */}
+          <div className="flex items-center gap-4">
+            <img
+              src={logo}
+              alt="Immigreat Logo"
+              className="w-16 h-16 rounded-full object-cover mix-blend-screen"
+            />
+            <div>
+              <h1 className="text-3xl font-semibold">Immigreat</h1>
+              <p className="text-sm opacity-90">Your Canadian Immigration Assistant</p>
+            </div>
           </div>
-          <p className="text-sm opacity-90">Your Canadian Immigration Assistant</p>
+
+          {/* Settings and Dark Mode Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="w-10 h-10 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full transition-all duration-300 hover:scale-110 text-xl"
+              aria-label="Toggle settings"
+              title="Advanced settings"
+            >
+              ⚙️
+            </button>
+
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="w-10 h-10 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full transition-all duration-300 hover:scale-110 text-xl"
+              aria-label="Toggle dark mode"
+            >
+              {isDarkMode ? '☀️' : '🌙'}
+            </button>
+          </div>
         </div>
-
-        {/* Settings Toggle */}
-        <button
-          onClick={() => setShowSettings(!showSettings)}
-          className="absolute top-6 right-20 w-10 h-10 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full transition-all duration-300 hover:scale-110 text-xl"
-          aria-label="Toggle settings"
-          title="Advanced settings"
-        >
-          ⚙️
-        </button>
-
-        {/* Dark Mode Toggle */}
-        <button
-          onClick={() => setIsDarkMode(!isDarkMode)}
-          className="absolute top-6 right-8 w-10 h-10 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full transition-all duration-300 hover:scale-110 text-xl"
-          aria-label="Toggle dark mode"
-        >
-          {isDarkMode ? '☀' : '🌙'}
-        </button>
       </header>
 
       {/* Settings Panel */}
