@@ -11,7 +11,7 @@ export interface ChatRequest {
 export interface ChatResponse {
   response?: string;
   answer?: string;
-  // Add other fields based on backend's actual response
+  // Add other fields based on your backend's actual response
   sources?: Array<{
     title: string;
     content: string;
@@ -42,6 +42,10 @@ export const chatAPI = {
     settings: ChatSettings = DEFAULT_SETTINGS
   ): Promise<ChatResponse> {
     try {
+      // Set timeout to 30 seconds (Lambda takes ~12s, so this is safe)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -53,7 +57,10 @@ export const chatAPI = {
           use_facet: settings.useFacet,
           use_rerank: settings.useRerank,
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -63,13 +70,19 @@ export const chatAPI = {
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('Error calling chat API:', error);
-      throw error;
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          throw new Error('Request timed out after 30 seconds. Please try again.');
+        }
+        console.error('Error calling chat API:', error);
+        throw error;
+      }
+      throw new Error('Unknown error occurred');
     }
   },
 
   /**
-   * Health check - optional, depends on if backend has this endpoint
+   * Health check - optional, depends on if your backend has this endpoint
    */
   async healthCheck(): Promise<boolean> {
     try {
