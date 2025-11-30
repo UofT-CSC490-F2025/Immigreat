@@ -59,7 +59,7 @@ function App() {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         // Handle different response formats from backend
-        content: response.response || response.answer || 'No response received',
+        content: response.answer || 'No response received',
         timestamp: new Date()
       }
 
