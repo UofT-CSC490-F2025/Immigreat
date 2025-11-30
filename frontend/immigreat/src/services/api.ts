@@ -3,20 +3,31 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export interface ChatRequest {
   query: string;
+  session_id?: string;  // For conversation persistence
   k?: number;           // Number of documents to retrieve (default: 3)
   use_facet?: boolean;  // Use faceted search (default: false)
   use_rerank?: boolean; // Rerank results (default: false)
 }
 
 export interface ChatResponse {
-  response?: string;
-  answer?: string;
-  // Add other fields based on your backend's actual response
+  answer: string;        // Backend uses "answer" not "response"
+  session_id: string;    // Session ID for conversation history
   sources?: Array<{
+    id: string;
+    source: string;
     title: string;
-    content: string;
-    score?: number;
+    similarity: number;
   }>;
+  timings?: {
+    history_retrieval_ms: number;
+    embedding_ms: number;
+    primary_retrieval_ms: number;
+    facet_expansion_ms: number;
+    llm_ms: number;
+    save_history_ms: number;
+    total_ms: number;
+  };
+  history_length?: number;
 }
 
 export interface ChatSettings {
@@ -31,6 +42,9 @@ export const DEFAULT_SETTINGS: ChatSettings = {
   useRerank: false,
 };
 
+// Store session ID in memory (could also use localStorage)
+let currentSessionId: string | null = null;
+
 export const chatAPI = {
   /**
    * Send a message to the chatbot
@@ -42,21 +56,28 @@ export const chatAPI = {
     settings: ChatSettings = DEFAULT_SETTINGS
   ): Promise<ChatResponse> {
     try {
-      // Set timeout to 30 seconds (Lambda takes ~12s, so this is safe)
+      // Set timeout to 60 seconds (Lambda takes ~12s)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+      const requestBody: ChatRequest = {
+        query: message,
+        k: settings.k,
+        use_facet: settings.useFacet,
+        use_rerank: settings.useRerank,
+      };
+
+      // Include session_id if we have one (for conversation continuity)
+      if (currentSessionId) {
+        requestBody.session_id = currentSessionId;
+      }
 
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          query: message,
-          k: settings.k,
-          use_facet: settings.useFacet,
-          use_rerank: settings.useRerank,
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
 
@@ -68,17 +89,37 @@ export const chatAPI = {
       }
 
       const data = await response.json();
+
+      // Store session_id for next request
+      if (data.session_id) {
+        currentSessionId = data.session_id;
+      }
+
       return data;
     } catch (error) {
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
-          throw new Error('Request timed out after 30 seconds. Please try again.');
+          throw new Error('Request timed out after 60 seconds. Please try again.');
         }
         console.error('Error calling chat API:', error);
         throw error;
       }
       throw new Error('Unknown error occurred');
     }
+  },
+
+  /**
+   * Reset conversation (clear session)
+   */
+  resetSession() {
+    currentSessionId = null;
+  },
+
+  /**
+   * Get current session ID
+   */
+  getSessionId() {
+    return currentSessionId;
   },
 
   /**
