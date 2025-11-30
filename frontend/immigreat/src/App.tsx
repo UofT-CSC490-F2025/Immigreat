@@ -273,7 +273,7 @@ function App() {
     setCurrentChatId(null)
     chatAPI.resetSession()
     setInput('')
-    setIsLoading(false)  // Clear loading state when starting new chat
+    setIsLoading(false)
   }
 
   const handleSelectChat = (chatId: string) => {
@@ -281,8 +281,8 @@ function App() {
     if (chat) {
       setMessages(chat.messages)
       setCurrentChatId(chat.id)
-      setIsLoading(false)  // Clear loading state when switching chats
-      setInput('')  // Clear input when switching chats
+      setInput('')
+      // Don't clear isLoading - let the API call finish naturally
     }
   }
 
@@ -311,6 +311,9 @@ function App() {
     setInput('')
     setIsLoading(true)
 
+    // Store the chat ID we're loading for
+    const chatIdForThisRequest = currentChatId
+
     try {
       const response = await chatAPI.sendMessage(userMessage.content, settings)
 
@@ -321,7 +324,18 @@ function App() {
         timestamp: new Date()
       }
 
-      setMessages(prev => [...prev, assistantMessage])
+      // Only add response if we're still on the same chat
+      if (currentChatId === chatIdForThisRequest) {
+        setMessages(prev => [...prev, assistantMessage])
+      } else {
+        // If chat was switched, update the saved chat in localStorage
+        const savedChat = chatHistoryManager.loadChat(chatIdForThisRequest || '')
+        if (savedChat) {
+          const updatedMessages = [...savedChat.messages, userMessage, assistantMessage]
+          chatHistoryManager.saveChat(chatIdForThisRequest, updatedMessages)
+          setSavedChats(chatHistoryManager.getAllChats())
+        }
+      }
     } catch (error) {
       console.error('Error sending message:', error)
 
@@ -332,9 +346,15 @@ function App() {
         timestamp: new Date()
       }
 
-      setMessages(prev => [...prev, errorMessage])
+      // Only add error if we're still on the same chat
+      if (currentChatId === chatIdForThisRequest) {
+        setMessages(prev => [...prev, errorMessage])
+      }
     } finally {
-      setIsLoading(false)
+      // Only clear loading if we're still on the same chat
+      if (currentChatId === chatIdForThisRequest) {
+        setIsLoading(false)
+      }
     }
   }
 
@@ -480,7 +500,7 @@ function App() {
                 <div key={message.id} className="mb-6 animate-fadeIn">
                   <div className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-full bg-white dark:bg-gray-800 shadow-md flex items-center justify-center text-xl flex-shrink-0">
-                      {message.role === 'user' ? '🙂' : '🍁'}
+                      {message.role === 'user' ? '👤' : '🤖'}
                     </div>
                     <div className="flex-1 bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
                       <div className="font-semibold text-sm mb-2 text-canada-red dark:text-red-400">
@@ -497,7 +517,7 @@ function App() {
                 <div className="mb-6 animate-fadeIn">
                   <div className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-full bg-white dark:bg-gray-800 shadow-md flex items-center justify-center text-xl flex-shrink-0">
-                      🍁
+                      🤖
                     </div>
                     <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-xl p-5 shadow-sm">
                       <div className="font-semibold text-sm mb-2 text-canada-red-dark dark:text-red-400">
