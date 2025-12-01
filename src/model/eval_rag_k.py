@@ -3,7 +3,7 @@ import boto3
 import requests
 
 from rag_llm_judge.judge.judge_model import ImmigrationJudge
-from .training_data.questions import POSITIVE_QUESTIONS    # expected = 1
+from .training_data.questions import QUESTIONS_DATA        # expected = 1
 from .training_data.questions import NEGATIVE_QUESTIONS    # expected = 0
 
 
@@ -29,7 +29,7 @@ def evaluate_config(k: int, use_facet: bool, use_rerank: bool, judge: Immigratio
     # Build combined dataset
     dataset = []
 
-    for q in POSITIVE_QUESTIONS:
+    for q in QUESTIONS_DATA:
         dataset.append({"question": q, "expected": 1})
 
     for n in NEGATIVE_QUESTIONS:
