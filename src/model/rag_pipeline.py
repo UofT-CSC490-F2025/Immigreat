@@ -16,6 +16,9 @@ EMBEDDING_MODEL = os.environ.get('BEDROCK_EMBEDDING_MODEL', 'amazon.titan-embed-
 CLAUDE_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'anthropic.claude-3-5-sonnet-20240620-v1:0')
 ANTHROPIC_VERSION = os.environ.get('ANTHROPIC_VERSION', 'bedrock-2023-05-31')
 DEBUG_BEDROCK_LOG = True
+# Defaults; can be overridden per-request
+FE_RAG_DEFAULT = os.environ.get("FE_RAG_ENABLE", "false").lower() == "true"
+RERANK_DEFAULT = os.environ.get("RERANK_ENABLE", "false").lower() == "true"
 # Comma-separated facet columns from the documents table to expand on
 FE_RAG_FACETS = [c.strip() for c in os.environ.get('FE_RAG_FACETS', 'source,title,section').split(',') if c.strip()]
 FE_RAG_MAX_FACET_VALUES = int(os.environ.get('FE_RAG_MAX_FACET_VALUES', '2'))  # per facet
@@ -442,7 +445,7 @@ def rerank_chunks(query: str, chunks):
     RAG pipeline never fails due to reranker issues.
     """
     if not chunks:
-        return []
+        return chunks[:CONTEXT_MAX_CHUNKS]
     try:
         docs = [r[1] for r in chunks]
         body = json.dumps({
@@ -521,15 +524,24 @@ def handler(event, context):
 
     # Extract query from possible event shapes
     user_query = None
+    k = 5
+    use_facets = FE_RAG_DEFAULT
+    use_rerank = RERANK_DEFAULT
     if isinstance(event, dict):
         if 'query' in event:  # direct invoke style
             user_query = event.get('query')
+            k = event.get('k', 5)
+            use_facets = event.get('use_facets', FE_RAG_DEFAULT)
+            use_rerank = event.get('use_rerank', RERANK_DEFAULT)
         elif 'body' in event:  # HTTP invoke style
             raw_body = event.get('body')
             if raw_body:
                 try:
                     parsed = json.loads(raw_body)
                     user_query = parsed.get('query')
+                    k = parsed.get('k', 5)
+                    use_facets = parsed.get('use_facets', FE_RAG_DEFAULT)
+                    use_rerank = parsed.get('use_rerank', RERANK_DEFAULT)
                 except Exception as e:
                     print(f"Failed to parse JSON body: {e}")
     # Tests:
@@ -550,8 +562,8 @@ def handler(event, context):
             },
             'body': json.dumps({'error': "Missing or invalid 'query'"})
         }
-    user_query = user_query.strip()
-
+    user_query = str(user_query.strip())
+    print(f"Received Query: {(user_query[:100] if isinstance(user_query, str) else 'None')}, k={k}, use_facets={use_facets}, use_rerank={use_rerank}")
     timings = {}
     t0 = time.time()
     conn = get_db_connection()
@@ -569,29 +581,31 @@ def handler(event, context):
 
         # Initial vector retrieval
         t_ret_start = time.time()
-        chunks = retrieve_similar_chunks(conn, query_emb, k=5)
+        chunks = retrieve_similar_chunks(conn, query_emb, k=k)
         timings['primary_retrieval_ms'] = round((time.time() - t_ret_start) * 1000, 2)
 
-        # Facet expansion
-        t_facet_start = time.time()
-        facet_extras = expand_via_facets(conn, chunks, query_emb, extra_limit=FE_RAG_EXTRA_LIMIT)
-        timings['facet_expansion_ms'] = round((time.time() - t_facet_start) * 1000, 2)
-        # Deduplicate by id while preserving original order
-        seen = {r[0] for r in chunks}
-        for r in facet_extras:
-            if r[0] not in seen:
-                chunks.append(r)
-                seen.add(r[0])
-        print(f"Retrieved {len(chunks)} chunks from vector DB (after facet expansion)")
+        # Facet expansion (optional)
+        if use_facets:
+            t_facet_start = time.time()
+            facet_extras = expand_via_facets(conn, chunks, query_emb, extra_limit=FE_RAG_EXTRA_LIMIT)
+            timings['facet_expansion_ms'] = round((time.time() - t_facet_start) * 1000, 2)
+            # Deduplicate by id while preserving original order
+            seen = {r[0] for r in chunks}
+            for r in facet_extras:
+                if r[0] not in seen:
+                    chunks.append(r)
+                    seen.add(r[0])
+        print(f"Retrieved {len(chunks)} chunks from vector DB")
 
-        # Rerank (optional)
-        t_rerank_start = time.time()
-        # Tests:
-        # - tests/unit/test_rag_pipeline_advanced.py::test_context_max_chunks_enforced
-        #   Edge: CONTEXT_MAX_CHUNKS limit respected after rerank/fallback.
-        chunks = rerank_chunks(user_query, chunks)
-        timings['rerank_ms'] = round((time.time() - t_rerank_start) * 1000, 2)
-        print(f"Final chunk count after rerank + truncation: {len(chunks)}")
+        if use_rerank:
+            # Rerank (optional)
+            t_rerank_start = time.time()
+            # Tests:
+            # - tests/unit/test_rag_pipeline_advanced.py::test_context_max_chunks_enforced
+            #   Edge: CONTEXT_MAX_CHUNKS limit respected after rerank/fallback.
+            chunks = rerank_chunks(user_query, chunks)
+            timings['rerank_ms'] = round((time.time() - t_rerank_start) * 1000, 2)
+            print(f"Final chunk count after rerank + truncation: {len(chunks)}")
 
         # Prompt assembly & generation
         query_context = "\n\n".join([r[1] for r in chunks])
@@ -618,10 +632,5 @@ def handler(event, context):
 
     return {
         'statusCode': 200,
-        'headers': {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type',
-            'Access-Control-Allow-Methods': 'POST,OPTIONS'
-        },
         'body': json.dumps(response_body)
     }
