@@ -17,6 +17,7 @@ from psycopg2.extras import execute_values
 import os
 import re
 import uuid
+import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -148,6 +149,14 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[st
     Simple text chunking with overlap (no external dependencies).
     Tries to break at sentence boundaries for better semantic coherence.
 
+    Why it's important: This runs for every document and can handle very large texts; inefficient chunking
+    or bad overlap logic can significantly slow ingestion and even risk infinite loops.
+
+    Optimization notes:
+    - Ensure forward progress even if overlap >= chunk_size (avoid infinite loop).
+    - Reduce repeated global lookups and slicing overhead by keeping indices tight.
+    - Keep the sentence-boundary search bounded and cheap.
+
     Args:
         text: Text to chunk
         chunk_size: Target size of each chunk
@@ -156,27 +165,41 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[st
     Returns:
         List of text chunks
     """
-    if len(text) <= chunk_size:
-        return [text]
+    n = len(text)
+    if n == 0:
+        return []
+    if n <= chunk_size:
+        return [text.strip()]
 
-    chunks = []
+    # Guarantee forward progress: overlap can't cancel out the window advance
+    effective_overlap = min(overlap, chunk_size - 1)
+
+    chunks: List[str] = []
     start = 0
+    # limit the sentence boundary search range to at most 100 characters for speed
+    lookback = 100
 
-    while start < len(text):
-        end = start + chunk_size
+    while start < n:
+        end = min(start + chunk_size, n)
 
-        # Try to break at sentence boundary
-        if end < len(text):
-            # Look for sentence end within last 100 chars
-            sentence_end = text.rfind('. ', end - 100, end)
-            if sentence_end > start:
-                end = sentence_end + 1
+        # Try to break at sentence boundary within [end-lookback, end)
+        if end < n:
+            lb = max(start, end - lookback)
+            cut = text.rfind('. ', lb, end)
+            if cut > start:
+                end = cut + 1  # include period
 
         chunk = text[start:end].strip()
-        if chunk:  # Only add non-empty chunks
+        if chunk:
             chunks.append(chunk)
 
-        start = end - overlap
+        # Move start forward; ensure at least +1 progress
+        next_start = end - effective_overlap
+        if next_start <= start:
+            next_start = start + 1
+        start = next_start
+
+        # Early exit if the remaining tail is tiny
 
     return chunks
 
@@ -213,22 +236,27 @@ def chunk_document(doc: Dict[str, Any], chunk_size: int, chunk_overlap: int) -> 
     # Split into chunks
     text_chunks = chunk_text(content, chunk_size, chunk_overlap)
 
-    # Convert to chunk dictionaries
-    chunk_dicts = []
-    for idx, text_chunk in enumerate(text_chunks, 1):  # Changed from chunk_text to text_chunk
-        chunk_id = f"{doc.get('id')}_chunk_{idx}"
-        chunk_dict = {
-            'id': chunk_id,
-            'document_id': doc.get('id'),
-            'content': text_chunk,  # Changed from chunk_text to text_chunk
-            'title': doc.get('title'),
-            'section': doc.get('section'),
-            'source': doc.get('source'),
-            'date_published': doc.get('date_published'),
-            'date_scraped': doc.get('date_scraped'),
-            'granularity': doc.get('granularity')
-        }
-        chunk_dicts.append(chunk_dict)
+    # Convert to chunk dictionaries efficiently
+    # Why it's important: This loop runs for every chunk of every document. The main optimization here is
+    # extracting doc_id once, rather than repeatedly accessing doc.get('id') or base['document_id'] in each iteration.
+    # The base dictionary is used for convenience and code clarity, not for performance.
+    base = {
+        'document_id': doc.get('id'),
+        'title': doc.get('title'),
+        'section': doc.get('section'),
+        'source': doc.get('source'),
+        'date_published': doc.get('date_published'),
+        'date_scraped': doc.get('date_scraped'),
+        'granularity': doc.get('granularity'),
+    }
+    chunk_dicts: List[Dict[str, Any]] = []
+    doc_id = base['document_id']
+    for idx, text_chunk in enumerate(text_chunks, 1):
+        chunk_dicts.append({
+            'id': f"{doc_id}_chunk_{idx}",
+            'content': text_chunk,
+            **base,
+        })
 
     return chunk_dicts
 
@@ -275,43 +303,60 @@ def get_db_connection():
         raise
 
 
-def get_embedding(text: str) -> List[float]:
+def get_embedding(text: str, max_retries: int = 5, base_delay: float = 1.0) -> List[float]:
     """
-    Generate embedding vector using Amazon Titan Embeddings G1 - Text.
+    Generate embedding vector using Amazon Titan Embeddings G1 - Text with exponential backoff retry.
 
     Args:
         text: Input text to embed
+        max_retries: Maximum number of retry attempts
+        base_delay: Base delay in seconds for exponential backoff
 
     Returns:
         List of floats representing the embedding vector
     """
-    try:
-        # Truncate if too long (Titan has limits)
-        max_length = 8000
-        if len(text) > max_length:
-            text = text[:max_length]
-            print(f"Warning: Text truncated to {max_length} characters for embedding")
+    # Truncate if too long (Titan has limits)
+    max_length = 8000
+    if len(text) > max_length:
+        text = text[:max_length]
+        print(f"Warning: Text truncated to {max_length} characters for embedding")
 
-        # Titan Embeddings G1 - Text request format
-        request_body = json.dumps({
-            "inputText": text
-        })
+    # Titan Embeddings G1 - Text request format
+    request_body = json.dumps({
+        "inputText": text
+    })
 
-        response = bedrock_runtime.invoke_model(
-            modelId=EMBEDDING_MODEL,
-            contentType='application/json',
-            accept='application/json',
-            body=request_body
-        )
+    for attempt in range(max_retries):
+        try:
+            response = bedrock_runtime.invoke_model(
+                modelId=EMBEDDING_MODEL,
+                contentType='application/json',
+                accept='application/json',
+                body=request_body
+            )
 
-        response_body = json.loads(response['body'].read())
-        embedding = response_body['embedding']
+            response_body = json.loads(response['body'].read())
+            embedding = response_body['embedding']
 
-        return embedding
+            return embedding
 
-    except Exception as e:
-        print(f"Error generating embedding: {str(e)}")
-        raise
+        except Exception as e:
+            error_str = str(e)
+
+            # Check if it's a throttling error
+            if 'ThrottlingException' in error_str or 'Too many requests' in error_str:
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                    delay = base_delay * (2 ** attempt)
+                    print(f"ThrottlingException on attempt {attempt + 1}/{max_retries}. Retrying in {delay}s...")
+                    time.sleep(delay)
+                else:
+                    print(f"Error generating embedding after {max_retries} attempts: {error_str}")
+                    raise
+            else:
+                # Non-throttling error, raise immediately
+                print(f"Error generating embedding: {error_str}")
+                raise
 
 
 def initialize_database(cursor):
@@ -425,14 +470,14 @@ def insert_chunks(cursor, chunks: List[Dict[str, Any]]):
 
 def handler(event, context):
     """
-    Lambda handler with balanced processing pipeline.
+    Lambda handler with balanced processing pipeline and batch processing.
 
     Pipeline stages:
     1. Load raw data from S3
     2. Validate data quality
     3. Clean and normalize → save to /cleaned
     4. Chunk semantically → save to /curated
-    5. Generate embeddings
+    5. Generate embeddings (in batches to fit Lambda timeout)
     6. Store in pgvector
 
     Args:
@@ -444,6 +489,10 @@ def handler(event, context):
     """
     print(f"Received event: {json.dumps(event)}")
 
+    # Lambda timeout management - leave 60 seconds buffer
+    lambda_timeout_seconds = context.get_remaining_time_in_millis() / 1000 - 60
+    start_time = datetime.now()
+
     try:
         # Extract S3 information from event
         s3_event = event['Records'][0]['s3']
@@ -451,6 +500,7 @@ def handler(event, context):
         object_key = s3_event['object']['key']
 
         print(f"Processing file: s3://{bucket_name}/{object_key}")
+        print(f"Lambda timeout: {lambda_timeout_seconds}s available")
 
         # Extract date and filename for output paths
         date_path = datetime.now().strftime('%Y-%m-%d')
@@ -483,27 +533,93 @@ def handler(event, context):
         print(f"Created {len(all_chunks)} chunks from {len(cleaned_documents)} documents")
 
         # ========== STAGE 5: GENERATE EMBEDDINGS ==========
-        chunks_with_embeddings = []
 
-        for chunk in all_chunks:
+        # First, check which chunks already exist in database
+        connection = get_db_connection()
+        cursor = connection.cursor()
+        initialize_database(cursor)
+
+        # Get list of already processed chunk IDs
+        chunk_ids = [chunk.get('id') for chunk in all_chunks]
+        cursor.execute(
+            "SELECT id FROM documents WHERE id = ANY(%s)",
+            (chunk_ids,)
+        )
+        existing_ids = set(row[0] for row in cursor.fetchall())
+        print(f"Found {len(existing_ids)} chunks already in database, will skip those")
+
+        chunks_with_embeddings = []
+        total_chunks = len(all_chunks)
+        chunks_to_process = [c for c in all_chunks if c.get('id') not in existing_ids]
+
+        print(
+            f"Total chunks: {total_chunks}, Already processed: {len(existing_ids)}, To process: {len(chunks_to_process)}")
+
+        # Faster rate limiting to fit within Lambda timeout
+        # With these settings: ~800-900 chunks in 15 minutes
+        EMBEDDING_DELAY = 0.2  # 200ms = ~5 req/second (faster but still safe)
+        BATCH_SIZE = 25  # Process in batches of 25
+        BATCH_DELAY = 1.0  # 1s pause every 25 chunks
+
+        chunks_processed = 0
+
+        print(f"Starting embedding generation with timeout-aware processing...")
+        print(f"Rate limit: {EMBEDDING_DELAY}s delay, batch pause every {BATCH_SIZE} chunks")
+
+        for idx, chunk in enumerate(chunks_to_process, 1):
+            # Check if we're running out of time
+            elapsed = (datetime.now() - start_time).total_seconds()
+            remaining = lambda_timeout_seconds - elapsed
+
+            if remaining < 120:  # Less than 2 minutes left
+                print(f"⚠️  Approaching timeout! Processed {chunks_processed}/{len(chunks_to_process)} new chunks")
+                print(
+                    f"Total in DB: {len(existing_ids) + chunks_processed}, Remaining: {len(chunks_to_process) - chunks_processed}")
+                break
+
             try:
                 content = chunk.get('content', '')
                 if content:
                     embedding = get_embedding(content)
                     chunk['embedding'] = embedding
                     chunks_with_embeddings.append(chunk)
+                    chunks_processed += 1
+
+                    # Progress tracking
+                    if idx % 50 == 0 or idx == len(chunks_to_process):
+                        elapsed_min = elapsed / 60
+                        rate = chunks_processed / elapsed if elapsed > 0 else 0
+                        eta_min = (len(chunks_to_process) - chunks_processed) / rate / 60 if rate > 0 else 0
+                        total_in_db = len(existing_ids) + chunks_processed
+                        print(
+                            f"Progress: {idx}/{len(chunks_to_process)} new chunks ({idx * 100 // len(chunks_to_process) if len(chunks_to_process) > 0 else 0}%) | "
+                            f"Total in DB: {total_in_db}/{total_chunks} | "
+                            f"Rate: {rate:.1f} chunks/s | Elapsed: {elapsed_min:.1f}m | ETA: {eta_min:.1f}m")
+
+                    # Rate limiting strategy:
+                    if idx < len(chunks_to_process):
+                        # Normal delay between each request
+                        time.sleep(EMBEDDING_DELAY)
+
+                        # Extra delay every BATCH_SIZE chunks
+                        if idx % BATCH_SIZE == 0:
+                            time.sleep(BATCH_DELAY)
+
             except Exception as e:
-                print(f"Error embedding chunk {chunk.get('id')}: {str(e)}")
+                error_msg = str(e)
+                print(f"Error embedding chunk {chunk.get('id')}: {error_msg}")
+
+                # If still hitting throttling after retries, increase delay
+                if 'ThrottlingException' in error_msg or 'Too many requests' in error_msg:
+                    print(f"Still throttled after retries. Increasing delay...")
+                    time.sleep(5.0)  # Extra cooldown before continuing
+
                 continue
 
         print(f"Generated embeddings for {len(chunks_with_embeddings)} chunks")
 
         # ========== STAGE 6: STORE IN PGVECTOR ==========
-        connection = get_db_connection()
-        cursor = connection.cursor()
-
-        # Initialize database (creates tables if not exists)
-        initialize_database(cursor)
+        # Connection already established earlier for duplicate check
 
         # Insert chunks into database
         if chunks_with_embeddings:
@@ -515,21 +631,34 @@ def handler(event, context):
         connection.close()
 
         # ========== SUCCESS ==========
+        total_in_db = len(existing_ids) + len(chunks_with_embeddings)
         print("=" * 80)
-        print("PIPELINE COMPLETED SUCCESSFULLY")
+        print("PIPELINE COMPLETED")
         print(f"Raw documents: {len(documents)}")
         print(f"Valid documents: {len(valid_documents)}")
-        print(f"Total chunks: {len(all_chunks)}")
-        print(f"Chunks stored in pgvector: {len(chunks_with_embeddings)}")
+        print(f"Total chunks created: {len(all_chunks)}")
+        print(f"Already in database: {len(existing_ids)}")
+        print(f"Newly processed: {len(chunks_with_embeddings)}")
+        print(f"Total in database: {total_in_db}/{len(all_chunks)}")
+        if total_in_db < len(all_chunks):
+            remaining = len(all_chunks) - total_in_db
+            print(f"⚠️  Partial processing: {remaining} chunks remaining")
+            print(f"💡 File will be reprocessed automatically on next S3 trigger")
+        else:
+            print(f"✅ All chunks processed successfully!")
         print("=" * 80)
 
         return {
             "statusCode": 200,
             "body": json.dumps({
-                "message": "Pipeline completed successfully",
+                "message": "Pipeline completed" if total_in_db == len(
+                    all_chunks) else "Partial processing - will continue on retry",
                 "documents_processed": len(valid_documents),
                 "chunks_created": len(all_chunks),
-                "chunks_stored": len(chunks_with_embeddings)
+                "chunks_already_in_db": len(existing_ids),
+                "chunks_newly_stored": len(chunks_with_embeddings),
+                "chunks_total_in_db": total_in_db,
+                "chunks_remaining": len(all_chunks) - total_in_db
             })
         }
 

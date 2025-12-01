@@ -93,17 +93,22 @@ resource "aws_iam_role_policy" "lambda_policy" {
           aws_secretsmanager_secret.pgvector_creds.arn
         ]
       },
-      # Bedrock - Invoke embedding models
+      # Bedrock - Invoke foundation models
       {
         Effect = "Allow"
         Action = [
           "bedrock:InvokeModel",
           "bedrock:InvokeModelWithResponseStream"
         ]
-        Resource = [
-          "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.titan-embed-text-v1",
-          "arn:aws:bedrock:${var.aws_region}::foundation-model/amazon.titan-embed-text-v2:0",
+        Resource = "arn:aws:bedrock:*::foundation-model/*"
+      },
+      # AWS Marketplace - Required for Bedrock marketplace models
+      {
+        Effect = "Allow"
+        Action = [
+          "aws-marketplace:ViewSubscriptions",
         ]
+        Resource = "*"
       },
       # VPC - Required for Lambda to access Aurora in VPC
       {
@@ -116,6 +121,18 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "ec2:UnassignPrivateIpAddresses"
         ]
         Resource = "*"
+      },
+      # DynamoDB - Chat session storage
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem"
+        ]
+        Resource = "${aws_dynamodb_table.chat_sessions.arn}"
       }
     ]
   })

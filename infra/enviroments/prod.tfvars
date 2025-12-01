@@ -1,5 +1,5 @@
 aws_region = "us-east-1"
-db_password = "YOUR_PROD_PASSWORD_HERE"  # Use a different, strong password
+db_password = "iurioEfL8aiuO52oTaozr"
 db_name = "immigrationDocsVectordb"
 lambda_memory = 1024  # More memory for prod
 lambda_timeout = 900

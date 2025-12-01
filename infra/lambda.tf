@@ -3,12 +3,16 @@ resource "aws_lambda_function" "data_ingestion" {
   role          = aws_iam_role.lambda_role.arn
 
   package_type = "Image"
-  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:ingest-latest"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
 
   timeout         = var.lambda_timeout
   memory_size     = var.lambda_memory
 
   architectures = ["arm64"]
+
+  image_config {
+    command = ["data_ingestion.handler"]
+  }
   vpc_config {
     subnet_ids         = module.vpc.private_subnets
     security_group_ids = [aws_security_group.lambda.id]
@@ -124,12 +128,115 @@ resource "aws_lambda_function" "forms_scraping" {
     }
   }
 }
+
+resource "aws_lambda_function" "rag_pipeline" {
+  function_name = "rag_pipeline-function-${local.environment}"
+  role          = aws_iam_role.lambda_role.arn
+
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
+
+  timeout         = var.lambda_timeout
+  memory_size     = var.lambda_memory
+
+  architectures = ["arm64"]
+
+  image_config {
+    command = ["model.rag_pipeline_with_chat.handler"]
+  }
+
+  vpc_config {
+    subnet_ids         = module.vpc.private_subnets
+    security_group_ids = [aws_security_group.lambda.id]
+  }
+
+  environment {
+    variables = {
+      PGVECTOR_SECRET_ARN      = aws_secretsmanager_secret.pgvector_creds.arn
+      PGVECTOR_DB_HOST         = aws_db_instance.pgvector.address 
+      PGVECTOR_DB_NAME         = var.db_name 
+      PGVECTOR_DB_PORT         = tostring(aws_db_instance.pgvector.port)
+
+      BEDROCK_EMBEDDING_MODEL  = var.bedrock_embedding_model_id
+      EMBEDDING_DIMENSIONS     = var.bedrock_embedding_dimensions
+      BEDROCK_CHAT_MODEL       = var.bedrock_chat_model_id
+      RERANK_MODEL             = var.bedrock_rerank_model_id
+      
+      # DynamoDB chat session table
+      DYNAMODB_CHAT_TABLE      = aws_dynamodb_table.chat_sessions.name
+    }
+  }
+}
+
+# Public HTTPS endpoint for rag_pipeline (simple alternative to API Gateway)
+resource "aws_lambda_function_url" "rag_pipeline_url" {
+  function_name      = aws_lambda_function.rag_pipeline.function_name
+  authorization_type = "NONE"  # open for testing; tighten later if needed
+  cors {
+    allow_origins = ["*"]
+    allow_methods = ["POST"]
+    allow_headers = ["content-type"]
+    max_age       = 3600
+  }
+}
+
+# Explicitly allow unauthenticated public invocations via Function URL
+resource "aws_lambda_permission" "rag_pipeline_function_url_public" {
+  statement_id             = "AllowPublicFunctionUrlInvoke"
+  action                   = "lambda:InvokeFunctionUrl"
+  function_name            = aws_lambda_function.rag_pipeline.function_name
+  principal                = "*"
+  function_url_auth_type   = "NONE"
+}
+
+# Lightweight DB admin/query lambda (list tables, describe table)
+resource "aws_lambda_function" "db_admin" {
+  function_name = "db-admin-function-${local.environment}"
+  role          = aws_iam_role.lambda_role.arn
+
+  package_type = "Image"
+  image_uri    = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
+
+  timeout     = 60
+  memory_size = 256
+
+  architectures = ["arm64"]
+
+  image_config {
+    command = ["model.db_admin_lambda.handler"]
+  }
+
+  vpc_config {
+    subnet_ids         = module.vpc.private_subnets
+    security_group_ids = [aws_security_group.lambda.id]
+  }
+
+  environment {
+    variables = {
+      PGVECTOR_SECRET_ARN = aws_secretsmanager_secret.pgvector_creds.arn
+      PGVECTOR_DB_HOST    = aws_db_instance.pgvector.address
+      PGVECTOR_DB_NAME    = var.db_name
+      PGVECTOR_DB_PORT    = tostring(aws_db_instance.pgvector.port)
+    }
+  }
+}
+
+resource "aws_cloudwatch_log_group" "db_admin_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.db_admin.function_name}"
+  retention_in_days = 7
+}
+
 resource "aws_lambda_permission" "allow_s3" {
   statement_id  = "AllowS3Invoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.data_ingestion.function_name
   principal     = "s3.amazonaws.com"
   source_arn    = aws_s3_bucket.immigration_documents.arn
+}
+
+resource "aws_cloudwatch_log_group" "rag_pipeline_lambda_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.rag_pipeline.function_name}"
+  retention_in_days = 7
 }
 
 resource "aws_cloudwatch_log_group" "lambda_logs" {

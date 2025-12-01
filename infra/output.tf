@@ -39,3 +39,8 @@ output "db_secret_arn" {
   description = "ARN of the Secrets Manager secret containing database credentials"
   value       = aws_secretsmanager_secret.pgvector_creds.arn
 }
+
+output "rag_pipeline_function_url" {
+  description = "Public HTTPS URL for rag_pipeline Lambda (Function URL)"
+  value       = aws_lambda_function_url.rag_pipeline_url.function_url
+}
