@@ -142,7 +142,7 @@ resource "aws_lambda_function" "rag_pipeline" {
   architectures = ["arm64"]
 
   image_config {
-    command = ["model.rag_pipeline.handler"]
+    command = ["model.rag_pipeline_with_chat.handler"]
   }
 
   vpc_config {

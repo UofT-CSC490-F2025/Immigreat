@@ -27,6 +27,8 @@ CLAUDE_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'anthropic.claude-3-5-son
 ANTHROPIC_VERSION = os.environ.get('ANTHROPIC_VERSION', 'bedrock-2023-05-31')
 DYNAMODB_CHAT_TABLE = os.environ.get('DYNAMODB_CHAT_TABLE')
 DEBUG_BEDROCK_LOG = True
+FE_RAG_ENABLE = os.environ.get('FE_RAG_ENABLE', 'true').lower() == 'true'
+RERANK_ENABLE = os.environ.get('RERANK_ENABLE', 'true').lower() == 'true'
 FE_RAG_FACETS = [c.strip() for c in os.environ.get('FE_RAG_FACETS', 'source,title,section').split(',') if c.strip()]
 FE_RAG_MAX_FACET_VALUES = int(os.environ.get('FE_RAG_MAX_FACET_VALUES', '2'))
 FE_RAG_EXTRA_LIMIT = int(os.environ.get('FE_RAG_EXTRA_LIMIT', '5'))
@@ -310,7 +312,7 @@ def generate_answer_with_history(prompt: str, history: list) -> str:
         "anthropic_version": ANTHROPIC_VERSION,
         "max_tokens": 1000,
         "messages": messages,
-        "system": "You are an expert Canadian immigration assistant. Use the provided context to answer questions accurately. If referencing previous conversation, acknowledge it naturally."
+        "system": "You are an expert Canadian immigration assistant. Use any useful provided context to answer questions accurately, and ignore it otherwise. If referencing previous conversation, acknowledge it naturally."
     }
 
     try:
@@ -350,6 +352,9 @@ def handler(event, context):
     # Extract query and session_id
     user_query = None
     session_id = None
+    k = 5
+    use_facets = FE_RAG_ENABLE
+    use_rerank = RERANK_ENABLE
     
     if isinstance(event, dict):
         if 'query' in event:  # Direct invoke
