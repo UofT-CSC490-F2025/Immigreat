@@ -552,19 +552,10 @@ def handler(event, context):
         total_chunks = len(all_chunks)
         chunks_to_process = [c for c in all_chunks if c.get('id') not in existing_ids]
 
-        print(
-            f"Total chunks: {total_chunks}, Already processed: {len(existing_ids)}, To process: {len(chunks_to_process)}")
-
-        # Faster rate limiting to fit within Lambda timeout
-        # With these settings: ~800-900 chunks in 15 minutes
-        EMBEDDING_DELAY = 0.2  # 200ms = ~5 req/second (faster but still safe)
-        BATCH_SIZE = 25  # Process in batches of 25
-        BATCH_DELAY = 1.0  # 1s pause every 25 chunks
-
+        EMBEDDING_DELAY = 0.2  # 200ms between embedding requests (~5 req/second)
         chunks_processed = 0
 
-        print(f"Starting embedding generation with timeout-aware processing...")
-        print(f"Rate limit: {EMBEDDING_DELAY}s delay, batch pause every {BATCH_SIZE} chunks")
+        print(f"Starting embedding generation: {total_chunks} total chunks, {len(existing_ids)} already processed, {len(chunks_to_process)} to process (delay: {EMBEDDING_DELAY}s)")
 
         for idx, chunk in enumerate(chunks_to_process, 1):
             # Check if we're running out of time
@@ -572,9 +563,7 @@ def handler(event, context):
             remaining = lambda_timeout_seconds - elapsed
 
             if remaining < 120:  # Less than 2 minutes left
-                print(f"⚠️  Approaching timeout! Processed {chunks_processed}/{len(chunks_to_process)} new chunks")
-                print(
-                    f"Total in DB: {len(existing_ids) + chunks_processed}, Remaining: {len(chunks_to_process) - chunks_processed}")
+                print(f"⚠️  Approaching timeout! Processed {chunks_processed}/{len(chunks_to_process)} new chunks. Total in DB: {len(existing_ids) + chunks_processed}, Remaining: {len(chunks_to_process) - chunks_processed}")
                 break
 
             try:
@@ -601,18 +590,12 @@ def handler(event, context):
                         # Normal delay between each request
                         time.sleep(EMBEDDING_DELAY)
 
-                        # Extra delay every BATCH_SIZE chunks
-                        if idx % BATCH_SIZE == 0:
-                            time.sleep(BATCH_DELAY)
-
             except Exception as e:
                 error_msg = str(e)
                 print(f"Error embedding chunk {chunk.get('id')}: {error_msg}")
-
                 # If still hitting throttling after retries, increase delay
                 if 'ThrottlingException' in error_msg or 'Too many requests' in error_msg:
-                    print(f"Still throttled after retries. Increasing delay...")
-                    time.sleep(5.0)  # Extra cooldown before continuing
+                    time.sleep(5.0)
 
                 continue
 

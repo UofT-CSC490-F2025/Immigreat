@@ -27,11 +27,9 @@ CLAUDE_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'anthropic.claude-3-5-son
 ANTHROPIC_VERSION = os.environ.get('ANTHROPIC_VERSION', 'bedrock-2023-05-31')
 DYNAMODB_CHAT_TABLE = os.environ.get('DYNAMODB_CHAT_TABLE')
 DEBUG_BEDROCK_LOG = True
-FE_RAG_ENABLE = True
 FE_RAG_FACETS = [c.strip() for c in os.environ.get('FE_RAG_FACETS', 'source,title,section').split(',') if c.strip()]
 FE_RAG_MAX_FACET_VALUES = int(os.environ.get('FE_RAG_MAX_FACET_VALUES', '2'))
 FE_RAG_EXTRA_LIMIT = int(os.environ.get('FE_RAG_EXTRA_LIMIT', '5'))
-RERANK_ENABLE = True
 RERANK_MODEL_ID = os.environ.get('RERANK_MODEL', 'cohere.rerank-v3-5:0')
 try:
     RERANK_API_VERSION = int(os.environ.get('RERANK_API_VERSION', '2'))
@@ -89,15 +87,6 @@ def invoke_bedrock_with_backoff(model_id, body, content_type="application/json",
             else:
                 print(f"Non-throttling error from {model_id}: {error_code} - {str(e)}")
                 raise
-                
-        except Exception as e:
-            print(f"Unexpected error invoking {model_id}: {str(e)}")
-            raise
-    
-    if last_exception:
-        raise last_exception
-    raise Exception(f"Failed to invoke {model_id} after {max_retries} attempts")
-
 
 def get_db_connection():
     secret = secretsmanager_client.get_secret_value(SecretId=PGVECTOR_SECRET_ARN)
@@ -182,9 +171,9 @@ def expand_via_facets(conn, seed_rows, query_embedding, extra_limit=5):
 
 
 def rerank_chunks(query: str, chunks):
-    """Reranking using Cohere Rerank (Bedrock) if enabled."""
-    if not RERANK_ENABLE or not chunks:
-        return chunks[:CONTEXT_MAX_CHUNKS]
+    """Reranking using Cohere Rerank (Bedrock)."""
+    if not chunks:
+        return []
     try:
         docs = [r[1] for r in chunks]
         body = json.dumps({
@@ -417,15 +406,14 @@ def handler(event, context):
         timings['primary_retrieval_ms'] = round((time.time() - t_ret_start) * 1000, 2)
 
         # Facet expansion
-        if FE_RAG_ENABLE:
-            t_facet_start = time.time()
-            facet_extras = expand_via_facets(conn, chunks, query_emb, extra_limit=FE_RAG_EXTRA_LIMIT)
-            timings['facet_expansion_ms'] = round((time.time() - t_facet_start) * 1000, 2)
-            seen = {r[0] for r in chunks}
-            for r in facet_extras:
-                if r[0] not in seen:
-                    chunks.append(r)
-                    seen.add(r[0])
+        t_facet_start = time.time()
+        facet_extras = expand_via_facets(conn, chunks, query_emb, extra_limit=FE_RAG_EXTRA_LIMIT)
+        timings['facet_expansion_ms'] = round((time.time() - t_facet_start) * 1000, 2)
+        seen = {r[0] for r in chunks}
+        for r in facet_extras:
+            if r[0] not in seen:
+                chunks.append(r)
+                seen.add(r[0])
         print(f"Retrieved {len(chunks)} chunks from vector DB")
 
         # Rerank
