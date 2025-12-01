@@ -16,12 +16,13 @@ EMBEDDING_MODEL = os.environ.get('BEDROCK_EMBEDDING_MODEL', 'amazon.titan-embed-
 CLAUDE_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'anthropic.claude-3-5-sonnet-20240620-v1:0')
 ANTHROPIC_VERSION = os.environ.get('ANTHROPIC_VERSION', 'bedrock-2023-05-31')
 DEBUG_BEDROCK_LOG = True
-FE_RAG_ENABLE = True
+# Defaults; can be overridden per-request
+FE_RAG_DEFAULT = os.environ.get("FE_RAG_ENABLE", "false").lower() == "true"
+RERANK_DEFAULT = os.environ.get("RERANK_ENABLE", "false").lower() == "true"
 # Comma-separated facet columns from the documents table to expand on
 FE_RAG_FACETS = [c.strip() for c in os.environ.get('FE_RAG_FACETS', 'source,title,section').split(',') if c.strip()]
 FE_RAG_MAX_FACET_VALUES = int(os.environ.get('FE_RAG_MAX_FACET_VALUES', '2'))  # per facet
 FE_RAG_EXTRA_LIMIT = int(os.environ.get('FE_RAG_EXTRA_LIMIT', '5'))
-RERANK_ENABLE = True
 RERANK_MODEL_ID = os.environ.get('RERANK_MODEL', 'cohere.rerank-v3-5:0')  # Bedrock Cohere Rerank
 # Bedrock Cohere Re-rank requires an API version (integer) in the payload. Default to 2.
 # Accept env as string and coerce; fallback to 2 if invalid.
@@ -267,7 +268,7 @@ def rerank_chunks(query: str, chunks):
     chunks: list of tuples (id, content, source, title, similarity)
     Returns reordered list (may truncate to CONTEXT_MAX_CHUNKS).
     """
-    if not RERANK_ENABLE or not chunks:
+    if not chunks:
         return chunks[:CONTEXT_MAX_CHUNKS]
     try:
         docs = [r[1] for r in chunks]
@@ -317,17 +318,26 @@ def handler(event, context):
 
     # Extract query from possible event shapes
     user_query = None
+    k = 5
+    use_facet = FE_RAG_DEFAULT
+    use_rerank = RERANK_DEFAULT
     if isinstance(event, dict):
         if 'query' in event:  # direct invoke style
             user_query = event.get('query')
+            k = event.get('k', 5)
+            use_facet = event.get('use_facet', FE_RAG_DEFAULT)
+            use_rerank = event.get('use_rerank', RERANK_DEFAULT)
         elif 'body' in event:  # HTTP invoke style
             raw_body = event.get('body')
             if raw_body:
                 try:
                     parsed = json.loads(raw_body)
                     user_query = parsed.get('query')
-                except Exception as e:
-                    print(f"Failed to parse JSON body: {e}")
+                    k = parsed.get('k')
+                    use_facet = parsed.get('use_facet', FE_RAG_DEFAULT)
+                    use_rerank = parsed.get('use_rerank', RERANK_DEFAULT)
+                except:
+                    pass
     if not user_query or not isinstance(user_query, str) or not user_query.strip():
         return {
             'statusCode': 400,
@@ -339,6 +349,7 @@ def handler(event, context):
             'body': json.dumps({'error': "Missing or invalid 'query'"})
         }
     user_query = user_query.strip()
+    print(f"Received query: {user_query[:100]}... (k={k}, facet={use_facet}, rerank={use_rerank})")
 
     timings = {}
     t0 = time.time()
@@ -351,11 +362,11 @@ def handler(event, context):
 
         # Initial vector retrieval
         t_ret_start = time.time()
-        chunks = retrieve_similar_chunks(conn, query_emb, k=5)
+        chunks = retrieve_similar_chunks(conn, query_emb, k=k)
         timings['primary_retrieval_ms'] = round((time.time() - t_ret_start) * 1000, 2)
 
         # Facet expansion (optional)
-        if FE_RAG_ENABLE:
+        if use_facet:
             t_facet_start = time.time()
             facet_extras = expand_via_facets(conn, chunks, query_emb, extra_limit=FE_RAG_EXTRA_LIMIT)
             timings['facet_expansion_ms'] = round((time.time() - t_facet_start) * 1000, 2)
@@ -365,13 +376,14 @@ def handler(event, context):
                 if r[0] not in seen:
                     chunks.append(r)
                     seen.add(r[0])
-        print(f"Retrieved {len(chunks)} chunks from vector DB (after facet expansion)")
+        print(f"Retrieved {len(chunks)} chunks from vector DB")
 
-        # Rerank (optional)
-        t_rerank_start = time.time()
-        chunks = rerank_chunks(user_query, chunks)
-        timings['rerank_ms'] = round((time.time() - t_rerank_start) * 1000, 2)
-        print(f"Final chunk count after rerank + truncation: {len(chunks)}")
+        if use_rerank:
+            # Rerank (optional)
+            t_rerank_start = time.time()
+            chunks = rerank_chunks(user_query, chunks)
+            timings['rerank_ms'] = round((time.time() - t_rerank_start) * 1000, 2)
+            print(f"Final chunk count after rerank + truncation: {len(chunks)}")
 
         # Prompt assembly & generation
         query_context = "\n\n".join([r[1] for r in chunks])

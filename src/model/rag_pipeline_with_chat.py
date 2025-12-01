@@ -366,6 +366,9 @@ def handler(event, context):
         if 'query' in event:  # Direct invoke
             user_query = event.get('query')
             session_id = event.get('session_id')
+            k = event.get('k', 5)
+            use_facets = event.get('use_facets', FE_RAG_ENABLE)
+            use_rerank = event.get('use_rerank', RERANK_ENABLE)
         elif 'body' in event:  # HTTP invoke
             raw_body = event.get('body')
             if raw_body:
@@ -373,8 +376,12 @@ def handler(event, context):
                     parsed = json.loads(raw_body)
                     user_query = parsed.get('query')
                     session_id = parsed.get('session_id')
+                    k = parsed.get('k', 5)
+                    use_facets = parsed.get('use_facets', FE_RAG_ENABLE)
+                    use_rerank = parsed.get('use_rerank', RERANK_ENABLE)
                 except Exception as e:
                     print(f"Failed to parse JSON body: {e}")
+    print(f"Received Query: {user_query[:100] if isinstance(user_query, str) else 'None'}, Session ID: {session_id}, k={k}, use_facets={use_facets}, use_rerank={use_rerank}")
     
     if not user_query or not isinstance(user_query, str) or not user_query.strip():
         return {
@@ -413,11 +420,11 @@ def handler(event, context):
 
         # Initial vector retrieval
         t_ret_start = time.time()
-        chunks = retrieve_similar_chunks(conn, query_emb, k=5)
+        chunks = retrieve_similar_chunks(conn, query_emb, k)
         timings['primary_retrieval_ms'] = round((time.time() - t_ret_start) * 1000, 2)
 
         # Facet expansion
-        if FE_RAG_ENABLE:
+        if use_facets:
             t_facet_start = time.time()
             facet_extras = expand_via_facets(conn, chunks, query_emb, extra_limit=FE_RAG_EXTRA_LIMIT)
             timings['facet_expansion_ms'] = round((time.time() - t_facet_start) * 1000, 2)
@@ -429,10 +436,11 @@ def handler(event, context):
         print(f"Retrieved {len(chunks)} chunks from vector DB")
 
         # Rerank
-        t_rerank_start = time.time()
-        chunks = rerank_chunks(user_query, chunks)
-        timings['rerank_ms'] = round((time.time() - t_rerank_start) * 1000, 2)
-        print(f"Final chunk count after rerank: {len(chunks)}")
+        if use_rerank:
+            t_rerank_start = time.time()
+            chunks = rerank_chunks(user_query, chunks)
+            timings['rerank_ms'] = round((time.time() - t_rerank_start) * 1000, 2)
+            print(f"Final chunk count after rerank: {len(chunks)}")
 
         # Build prompt with context
         query_context = "\n\n".join([r[1] for r in chunks])
