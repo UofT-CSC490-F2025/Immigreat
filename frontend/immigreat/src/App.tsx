@@ -432,7 +432,7 @@ function App() {
                   <input
                     type="range"
                     min="1"
-                    max="10"
+                    max="40"
                     value={settings.k}
                     onChange={(e) => setSettings({...settings, k: parseInt(e.target.value)})}
                     className="w-full"

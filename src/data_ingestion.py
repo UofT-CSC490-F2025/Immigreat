@@ -674,10 +674,10 @@ def handler(event, context):
         if total_in_db < len(all_chunks):
             remaining = len(all_chunks) - total_in_db
             print(f"⚠️  Partial processing: {remaining} chunks remaining")
-            print(f"🔄 Auto-retry: Will invoke Lambda again in 60 seconds...")
+            print(f"🔄 Auto-retry: Will invoke Lambda again in 30 seconds...")
 
             # Wait before retry to avoid tight loop
-            time.sleep(60)
+            time.sleep(30)
 
             try:
                 # Re-invoke this Lambda with the same event

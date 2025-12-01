@@ -332,7 +332,27 @@ Judgment:"""
     def save_checkpoint(self, name: str):
         """Save model checkpoint."""
         checkpoint_path = self.output_dir / "checkpoints" / f"{name}.pt"
-        torch.save(self.model.state_dict(), checkpoint_path)
+
+        # Check if using LoRA/PEFT
+        if hasattr(self.model, 'peft_config'):
+            # Save LoRA adapters separately (works with quantization)
+            adapter_path = self.output_dir / "checkpoints" / f"{name}_lora_adapters"
+            self.model.save_pretrained(adapter_path)
+            print(f"LoRA adapters saved to: {adapter_path}")
+
+            # Also save a marker file
+            import json
+            with open(checkpoint_path.with_suffix('.json'), 'w') as f:
+                json.dump({
+                    "type": "lora_adapters",
+                    "path": str(adapter_path),
+                    "quantized": getattr(self, 'quantized', False)
+                }, f, indent=2)
+            print(f"Checkpoint info saved to: {checkpoint_path.with_suffix('.json')}")
+        else:
+            # Regular model - save full state dict
+            torch.save(self.model.state_dict(), checkpoint_path)
+            print(f"Full model checkpoint saved to: {checkpoint_path}")
 
     def save_logs(self):
         """Save training logs."""
