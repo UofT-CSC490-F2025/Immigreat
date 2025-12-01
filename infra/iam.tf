@@ -73,6 +73,12 @@ resource "aws_iam_role_policy" "lambda_policy" {
         ]
         Resource = "arn:aws:logs:*:*:*"
       },
+      # Lambda - Invoke data ingestion function
+      {
+          "Effect": "Allow",
+          "Action": "lambda:InvokeFunction",
+          "Resource": "arn:aws:lambda:us-east-1:888429341377:function:data_ingestion-function-prod"
+      },
       # S3 - Read documents
       {
         Effect = "Allow"
