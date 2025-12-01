@@ -319,13 +319,13 @@ def handler(event, context):
     # Extract query from possible event shapes
     user_query = None
     k = 5
-    use_facet = FE_RAG_DEFAULT
+    use_facets = FE_RAG_DEFAULT
     use_rerank = RERANK_DEFAULT
     if isinstance(event, dict):
         if 'query' in event:  # direct invoke style
             user_query = event.get('query')
             k = event.get('k', 5)
-            use_facet = event.get('use_facet', FE_RAG_DEFAULT)
+            use_facets = event.get('use_facets', FE_RAG_DEFAULT)
             use_rerank = event.get('use_rerank', RERANK_DEFAULT)
         elif 'body' in event:  # HTTP invoke style
             raw_body = event.get('body')
@@ -333,8 +333,8 @@ def handler(event, context):
                 try:
                     parsed = json.loads(raw_body)
                     user_query = parsed.get('query')
-                    k = parsed.get('k')
-                    use_facet = parsed.get('use_facet', FE_RAG_DEFAULT)
+                    k = parsed.get('k', 5)
+                    use_facets = parsed.get('use_facets', FE_RAG_DEFAULT)
                     use_rerank = parsed.get('use_rerank', RERANK_DEFAULT)
                 except:
                     pass
@@ -348,9 +348,8 @@ def handler(event, context):
             },
             'body': json.dumps({'error': "Missing or invalid 'query'"})
         }
-    user_query = user_query.strip()
-    print(f"Received query: {user_query[:100]}... (k={k}, facet={use_facet}, rerank={use_rerank})")
-
+    user_query = str(user_query.strip())
+    print(f"Received Query: {(user_query[:100] if isinstance(user_query, str) else 'None')}, k={k}, use_facets={use_facets}, use_rerank={use_rerank}")
     timings = {}
     t0 = time.time()
     conn = get_db_connection()
@@ -366,7 +365,7 @@ def handler(event, context):
         timings['primary_retrieval_ms'] = round((time.time() - t_ret_start) * 1000, 2)
 
         # Facet expansion (optional)
-        if use_facet:
+        if use_facets:
             t_facet_start = time.time()
             facet_extras = expand_via_facets(conn, chunks, query_emb, extra_limit=FE_RAG_EXTRA_LIMIT)
             timings['facet_expansion_ms'] = round((time.time() - t_facet_start) * 1000, 2)
@@ -407,10 +406,5 @@ def handler(event, context):
 
     return {
         'statusCode': 200,
-        'headers': {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type',
-            'Access-Control-Allow-Methods': 'POST,OPTIONS'
-        },
         'body': json.dumps(response_body)
     }

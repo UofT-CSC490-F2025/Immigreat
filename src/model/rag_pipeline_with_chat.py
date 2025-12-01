@@ -381,7 +381,7 @@ def handler(event, context):
                     use_rerank = parsed.get('use_rerank', RERANK_ENABLE)
                 except Exception as e:
                     print(f"Failed to parse JSON body: {e}")
-    print(f"Received Query: {user_query[:100] if isinstance(user_query, str) else 'None'}, Session ID: {session_id}, k={k}, use_facets={use_facets}, use_rerank={use_rerank}")
+    print(f"Received Query: {(user_query[:100] if isinstance(user_query, str) else 'None')}, Session ID: {session_id}, k={k}, use_facets={use_facets}, use_rerank={use_rerank}")
     
     if not user_query or not isinstance(user_query, str) or not user_query.strip():
         return {
@@ -488,11 +488,6 @@ def handler(event, context):
 
     return {
         'statusCode': 200,
-        'headers': {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type',
-            'Access-Control-Allow-Methods': 'POST,OPTIONS'
-        },
         'body': json.dumps(response_body)
     }
 
