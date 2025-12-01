@@ -137,5 +137,6 @@ def test_retrieve_similar_chunks_empty_rows_end_to_end_still_200(monkeypatch):
     assert body["answer"] == "ok"
     # No sources since retrieval returned empty
     assert body["sources"] == []
-    # Timings present
-    assert set(["embedding_ms", "primary_retrieval_ms", "facet_expansion_ms", "rerank_ms", "llm_ms"]).issubset(body["timings"].keys())
+    # Timings present - only check for keys that should always be present
+    # When use_facets=False and use_rerank=False (defaults), only these timing keys are included
+    assert set(["embedding_ms", "primary_retrieval_ms", "llm_ms", "total_ms"]).issubset(body["timings"].keys())
