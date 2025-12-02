@@ -374,13 +374,6 @@ function App() {
       let thinking = response.thinking || null
       let answer = response.answer || 'No response received'
 
-      // Fallback: If backend didn't separate, try to parse
-      if (!thinking && answer) {
-        const parsed = separateThinkingFromAnswer(answer)
-        thinking = parsed.thinking
-        answer = parsed.answer
-      }
-
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
