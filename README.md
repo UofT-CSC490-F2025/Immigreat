@@ -12,6 +12,8 @@
 
 **Production-grade Retrieval-Augmented Generation (RAG) system for Canadian immigration guidance**
 
+[🌐 Visit Immigreat Website](https://frontend-deployment.d1bzdr05ipy0gp.amplifyapp.com/)
+
 [Features](#-features) • [Architecture](#-architecture) • [Getting Started](#-getting-started) • [Documentation](#-documentation)
 
 </div>
@@ -362,3 +364,4 @@ University of Toronto
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
 
 </div>
+
