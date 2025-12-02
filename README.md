@@ -144,6 +144,9 @@ npm run build
 ```bash
 cd infra
 
+# Build lambda
+./scripts/build_lambda.sh
+
 # Initialize Terraform
 terraform init
 
@@ -364,5 +367,6 @@ University of Toronto
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
 
 </div>
+
 
 
