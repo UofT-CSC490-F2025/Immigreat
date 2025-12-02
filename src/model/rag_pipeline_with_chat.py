@@ -55,9 +55,9 @@ def invoke_bedrock_with_backoff(model_id, body, content_type="application/json",
     """Invoke Bedrock model with exponential backoff and jitter to handle throttling."""
     if max_retries is None:
         max_retries = MAX_BEDROCK_RETRIES
-    
+
     last_exception = None
-    
+
     for attempt in range(max_retries):
         try:
             response = bedrock_runtime.invoke_model(
@@ -69,32 +69,32 @@ def invoke_bedrock_with_backoff(model_id, body, content_type="application/json",
             if attempt > 0:
                 print(f"Successfully invoked {model_id} after {attempt + 1} attempts")
             return response
-            
+
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', '')
             last_exception = e
-            
+
             if error_code == 'ThrottlingException':
                 if attempt == max_retries - 1:
                     print(f"Max retries ({max_retries}) exceeded for {model_id}")
                     raise
-                
+
                 exponential_delay = (2 ** attempt) * BEDROCK_BASE_DELAY
                 jitter = random.uniform(0, BEDROCK_MAX_JITTER)
                 total_delay = exponential_delay + jitter
-                
+
                 print(f"ThrottlingException on attempt {attempt + 1}/{max_retries} for {model_id}, "
                       f"retrying in {total_delay:.2f}s")
-                
+
                 time.sleep(total_delay)
             else:
                 print(f"Non-throttling error from {model_id}: {error_code} - {str(e)}")
                 raise
-                
+
         except Exception as e:
             print(f"Unexpected error invoking {model_id}: {str(e)}")
             raise
-    
+
     if last_exception:
         raise last_exception
     raise Exception(f"Failed to invoke {model_id} after {max_retries} attempts")
@@ -251,7 +251,7 @@ def get_chat_history(session_id: str, max_messages: int = MAX_HISTORY_MESSAGES):
     """Retrieve recent chat history for a session from DynamoDB."""
     if not chat_table or not session_id:
         return []
-    
+
     try:
         response = chat_table.query(
             KeyConditionExpression='session_id = :sid',
@@ -259,11 +259,11 @@ def get_chat_history(session_id: str, max_messages: int = MAX_HISTORY_MESSAGES):
             ScanIndexForward=False,  # Most recent first
             Limit=max_messages
         )
-        
+
         items = response.get('Items', [])
         # Reverse to get chronological order (oldest first)
         items.reverse()
-        
+
         history = []
         for item in items:
             history.append({
@@ -271,10 +271,10 @@ def get_chat_history(session_id: str, max_messages: int = MAX_HISTORY_MESSAGES):
                 'content': item.get('message', ''),
                 'timestamp': int(item.get('timestamp', 0))
             })
-        
+
         print(f"Retrieved {len(history)} messages for session {session_id}")
         return history
-        
+
     except Exception as e:
         print(f"Error retrieving chat history: {e}")
         return []
@@ -284,11 +284,11 @@ def save_message_to_history(session_id: str, role: str, message: str):
     """Save a message to chat history in DynamoDB."""
     if not chat_table or not session_id:
         return
-    
+
     try:
         timestamp = int(time.time() * 1000)  # milliseconds
         ttl = int((datetime.now() + timedelta(days=CHAT_SESSION_TTL_DAYS)).timestamp())
-        
+
         chat_table.put_item(
             Item={
                 'session_id': session_id,
@@ -299,7 +299,7 @@ def save_message_to_history(session_id: str, role: str, message: str):
             }
         )
         print(f"Saved {role} message to session {session_id}")
-        
+
     except Exception as e:
         print(f"Error saving message to history: {e}")
 
@@ -308,40 +308,40 @@ def format_chat_history_for_prompt(history):
     """Format chat history for inclusion in the prompt."""
     if not history:
         return ""
-    
+
     formatted = "Previous conversation:\n"
     for msg in history:
         role = msg['role'].capitalize()
         content = msg['content']
         formatted += f"{role}: {content}\n"
-    
+
     formatted += "\n"
     return formatted
 
 
 def generate_answer_with_history(prompt: str, history: list) -> str:
     """Send a chat prompt to Claude with conversation history.
-    
+
     Args:
         prompt: The current user question with context
         history: List of previous messages [{'role': 'user'/'assistant', 'content': '...'}]
     """
     # Build messages array with history
     messages = []
-    
+
     # Add historical messages (alternating user/assistant)
     for msg in history:
         messages.append({
             "role": msg['role'],
             "content": [{"type": "text", "text": msg['content']}]
         })
-    
+
     # Add current prompt as latest user message
     messages.append({
         "role": "user",
         "content": [{"type": "text", "text": prompt}]
     })
-    
+
     payload = {
         "anthropic_version": ANTHROPIC_VERSION,
         "max_tokens": 2048,
@@ -368,12 +368,12 @@ Remember: The context provided has been carefully selected as relevant to the qu
         data = json.loads(response["body"].read())
         if DEBUG_BEDROCK_LOG:
             print(f"Claude raw response: {json.dumps(data)[:2000]}")
-        
+
         content_blocks = data.get("content", [])
         for block in content_blocks:
             if block.get("type") == "text":
                 return block.get("text", "")
-        
+
         raise ValueError(f"Unexpected Claude response format: {data}")
     except Exception as e:
         print(f"Error invoking Claude model: {e}")
@@ -383,13 +383,13 @@ Remember: The context provided has been carefully selected as relevant to the qu
 def handler(event, context):
     """
     Enhanced RAG handler with chat history support.
-    
+
     Expected input:
     {
         "query": "Your question here",
         "session_id": "optional-uuid-for-chat-continuity"
     }
-    
+
     If session_id is not provided, a new one is generated (stateless mode).
     """
     print('Starting RAG pipeline with chat support')
@@ -397,7 +397,7 @@ def handler(event, context):
     # Extract query and session_id
     user_query = None
     session_id = None
-    
+
     if isinstance(event, dict):
         if 'query' in event:  # Direct invoke
             user_query = event.get('query')
@@ -418,20 +418,15 @@ def handler(event, context):
                 except Exception as e:
                     print(f"Failed to parse JSON body: {e}")
     print(f"Received Query: {user_query[:100] if isinstance(user_query, str) else 'None'}, Session ID: {session_id}, k={k}, use_facets={use_facets}, use_rerank={use_rerank}")
-    
+
     if not user_query or not isinstance(user_query, str) or not user_query.strip():
         return {
             'statusCode': 400,
-            'headers': {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': 'Content-Type',
-                'Access-Control-Allow-Methods': 'POST,OPTIONS'
-            },
             'body': json.dumps({'error': "Missing or invalid 'query'"})
         }
-    
+
     user_query = user_query.strip()
-    
+
     # Generate session_id if not provided
     if not session_id:
         session_id = str(uuid.uuid4())
@@ -441,12 +436,12 @@ def handler(event, context):
 
     timings = {}
     t0 = time.time()
-    
+
     # Retrieve chat history
     t_history_start = time.time()
     chat_history = get_chat_history(session_id)
     timings['history_retrieval_ms'] = round((time.time() - t_history_start) * 1000, 2)
-    
+
     conn = get_db_connection()
     try:
         # Embedding stage
@@ -479,30 +474,16 @@ def handler(event, context):
             print(f"Final chunk count after rerank: {len(chunks)}")
 
         # Build prompt with context
-        if not chunks:
-            # No relevant context found
-            prompt = f"""No relevant context was found in the knowledge base for this question.
+        query_context = "\n\n".join([r[1] for r in chunks])
 
-Question: {user_query}
+        # Format: Context + Current Question
+        prompt = f"Context from knowledge base:\n{query_context}\n\nCurrent Question: {user_query}\n\nAnswer based on the context provided:"
 
-Please provide a helpful response based on your general knowledge of Canadian immigration, but clearly indicate that this is based on general knowledge rather than specific documentation."""
-        else:
-            query_context = "\n\n".join([r[1] for r in chunks])
-
-            # Format: Context + Current Question
-            prompt = f"""Here is relevant information from the Canadian immigration knowledge base:
-
-{query_context}
-
-Question: {user_query}
-
-Please provide a comprehensive answer based on the context above. Include specific details and cite relevant information from the context."""
-        
         print(f"Prompt length: {len(prompt)} characters, History items: {len(chat_history)}")
-        
+
         # Generate answer with history
         t_llm_start = time.time()
-        
+
         # Prepare history for Claude (only user/assistant messages, not the RAG context)
         # We'll use a simpler approach: just pass the question-answer pairs
         formatted_history = []
@@ -511,11 +492,11 @@ Please provide a comprehensive answer based on the context above. Include specif
                 'role': msg['role'],
                 'content': msg['content']
             })
-        
+
         answer = generate_answer_with_history(prompt, formatted_history)
         timings['llm_ms'] = round((time.time() - t_llm_start) * 1000, 2)
         print(f"Generated answer: {answer[:200]}...")
-        
+
     finally:
         conn.close()
 
@@ -538,12 +519,5 @@ Please provide a comprehensive answer based on the context above. Include specif
 
     return {
         'statusCode': 200,
-        'headers': {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type',
-            'Access-Control-Allow-Methods': 'POST,OPTIONS'
-        },
         'body': json.dumps(response_body)
     }
-
-
