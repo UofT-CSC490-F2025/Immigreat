@@ -56,29 +56,10 @@
 
 ### System Overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Frontend Layer                           │
-│  React + TypeScript + Vite → AWS Amplify (CloudFront CDN)      │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ HTTPS
-┌────────────────────────────▼────────────────────────────────────┐
-│                      API Gateway / Lambda                        │
-│             RAG Pipeline (ARM64, Docker containers)             │
-└──┬──────────┬──────────┬──────────┬──────────┬─────────────────┘
-   │          │          │          │          │
-   ▼          ▼          ▼          ▼          ▼
-┌────┐   ┌────────┐  ┌──────┐  ┌────────┐  ┌──────────┐
-│ S3 │   │pgvector│  │Bedrock│ │DynamoDB│  │Secrets   │
-│Raw/│   │RDS     │  │Titan  │ │Session │  │Manager   │
-│Data│   │Vectors │  │Claude │ │History │  │Creds     │
-└────┘   └────────┘  └───┬──┘  └────────┘  └──────────┘
-                         │
-                    ┌────▼─────┐
-                    │  Cohere  │
-                    │  Rerank  │
-                    └──────────┘
-```
+<div align="center">
+  <img src=".github/images/architecture-diagram.png" alt="Immigreat System Architecture" width="800">
+  <p><em>End-to-end architecture showing data flow from frontend through RAG pipeline to AWS services</em></p>
+</div>
 
 ### Tech Stack
 
@@ -360,7 +341,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 👥 Team
 
-**Immigreat Development Team**  
+**Immigreat Development Team**
+
 Department of Computer Science  
 University of Toronto
 
@@ -378,12 +360,5 @@ University of Toronto
 ## 📮 Contact & Support
 
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
-- **Email**: Contact via University of Toronto CS department
-
----
-
-<div align="center">
-
-**Built with ❤️ and 🍁 in Toronto**
 
 </div>
