@@ -5,7 +5,7 @@
 ### AI-Powered Canadian Immigration Assistant
 
 [![Test Coverage](https://github.com/UofT-CSC490-F2025/Immigreat/actions/workflows/test-coverage.yml/badge.svg)](https://github.com/UofT-CSC490-F2025/Immigreat/actions/workflows/test-coverage.yml)
-![Coverage](https://img.shields.io/badge/coverage-96.98%25-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-95.06%25-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.13-blue)
 ![React](https://img.shields.io/badge/react-19.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -26,7 +26,7 @@
 
 ### Key Highlights
 
-- 🎯 **96.98% test coverage** with comprehensive failure mode testing
+- 🎯 **95.06% test coverage** with comprehensive failure mode testing
 - ⚡ **Low query latency** with stage-level performance metrics
 - 🔍 **FE-RAG (Facet-Expanded RAG)** - Modern retrieval enhancement increasing source diversity.
 - **Reranking** - Rerank retrieved chunks based on relevancy
@@ -205,7 +205,7 @@ Immigreat/
 │   └── requirements.txt
 │
 ├── tests/                      # Comprehensive test suite
-│   ├── unit/                  # Unit tests (96.98% coverage)
+│   ├── unit/                  # Unit tests (95.06% coverage)
 │   ├── integration/           # Integration tests
 │   └── conftest.py            # Shared fixtures
 │
@@ -249,7 +249,7 @@ We maintain **>90% code coverage** across all modules:
 | data_ingestion.py | 100%       | 274/274       | 94%      |
 | rag_pipeline.py   | 94%        | 182/194       | 78%      |
 | scrapers          | 97%        | 743/767       | 94%      |
-| **Overall**       | **96.98%** | **1237/1273** | **92%**  |
+| **Overall**       | **95.06%** | **1237/1273** | **92%**  |
 
 ### Test Structure
 
@@ -368,6 +368,7 @@ University of Toronto
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
 
 </div>
+
 
 
 
