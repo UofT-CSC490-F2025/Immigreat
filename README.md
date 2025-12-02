@@ -22,13 +22,15 @@
 
 ## 📖 Overview
 
-**Immigreat** is a production-ready AI assistant that helps users navigate the complexities of Canadian immigration. Built using state-of-the-art RAG technology, it combines semantic search with large language models to provide accurate, source-based answers to immigration questions.
+**Immigreat** is a RAG-powered LLM assistant that helps users navigate the complexities of Canadian immigration. It combines semantic search with large language models to provide accurate, source-based answers to immigration questions.
 
 ### Key Highlights
 
 - 🎯 **96.98% test coverage** with comprehensive failure mode testing
 - ⚡ **Low query latency** with stage-level performance metrics
 - 🔍 **FE-RAG (Facet-Expanded RAG)** - Modern retrieval enhancement increasing source diversity.
+- **Reranking** - Rerank retrieved chunks based on relevancy
+- **RL Judge Filtering** - Improved answer accuracy using RL Judge Filtering
 - 🏗️ **Serverless architecture** on AWS with automatic scaling
 - 🔒 **Production-grade resilience** - Exponential backoff, graceful degradation, ACID guarantees
 
@@ -39,7 +41,6 @@
 ### Core Capabilities
 
 - **Intelligent Q&A** - Ask questions about Canadian immigration in natural language
-- **Source Attribution** - Every answer includes references to official immigration documents
 - **Multi-Turn Conversations** - Context-aware follow-up questions with session persistence
 - **Real-Time Search** - Configurable retrieval parameters (k, faceted search, re-ranking)
 - **Dark Mode** - Polished UI with light/dark theme support
@@ -367,6 +368,7 @@ University of Toronto
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
 
 </div>
+
 
 
 
