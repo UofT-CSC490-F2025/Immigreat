@@ -42,16 +42,16 @@
 
 - **Intelligent Q&A** - Ask questions about Canadian immigration in natural language
 - **Multi-Turn Conversations** - Context-aware follow-up questions with session persistence
-- **Real-Time Search** - Configurable retrieval parameters (k, faceted search, re-ranking)
-- **Dark Mode** - Polished UI with light/dark theme support
-
+- **Real-Time Search Parameters** - Configurable retrieval parameters (k, faceted search, re-ranking)
+- **Answer Filtering** - RL Judge for assured answer faithfulness
+  
 ### Technical Features
 
 - **Semantic Search** - 1,536-dimensional embeddings via AWS Bedrock Titan
 - **Advanced Retrieval** - Optional Cohere re-ranking for improved relevance
 - **Multi-Source Ingestion** - Automated scrapers for IRCC, IRPA/IRPR, Refugee Law Lab, and official forms
 - **Vector Database** - PostgreSQL with pgvector extension for efficient similarity search
-- **Conversation History** - DynamoDB-backed session management with TTL expiration
+- **Conversation History** - Session ID based history retrieval
 
 ---
 
@@ -368,6 +368,7 @@ University of Toronto
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
 
 </div>
+
 
 
 
