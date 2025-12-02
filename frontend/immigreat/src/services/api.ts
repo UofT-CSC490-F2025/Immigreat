@@ -1,5 +1,5 @@
 // src/services/api.ts
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL;
 
 export interface ChatRequest {
   query: string;
@@ -11,6 +11,7 @@ export interface ChatRequest {
 
 export interface ChatResponse {
   answer: string;        // Backend uses "answer" not "response"
+  thinking?: string;     // Optional thinking/reasoning process from DeepSeek R1
   session_id: string;    // Session ID for conversation history
   sources?: Array<{
     id: string;

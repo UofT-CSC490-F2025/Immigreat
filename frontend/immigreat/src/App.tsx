@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { chatAPI, DEFAULT_SETTINGS } from './services/api'
 import type { ChatSettings } from './services/api'
 import logo from './assets/logo.png'
@@ -9,6 +10,7 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
+  thinking?: string  // Optional thinking process for AI responses
 }
 
 interface SavedChat {
@@ -295,6 +297,42 @@ function App() {
     }
   }
 
+  // Function to separate thinking process from actual answer
+  const separateThinkingFromAnswer = (text: string): { thinking: string | null, answer: string } => {
+    // Check for </think> delimiter - this is the reliable split point
+    if (text.includes('</think>')) {
+      const parts = text.split('</think>', 1)  // Split only on first occurrence
+
+      if (parts.length === 2 || text.indexOf('</think>') !== -1) {
+        // Get everything before </think> as thinking
+        let thinking = parts[0].trim()
+
+        // Get everything after </think> as answer
+        let answer = text.substring(text.indexOf('</think>') + 8).trim()  // 8 = length of '</think>'
+
+        // Remove opening <think> tag if present
+        if (thinking.startsWith('<think>')) {
+          thinking = thinking.substring(7).trim()  // 7 = length of '<think>'
+        }
+
+        // Remove "Answer:" prefix from answer if present
+        if (answer.startsWith('**Answer:**')) {
+          answer = answer.substring(11).trim()
+        } else if (answer.startsWith('Answer:')) {
+          answer = answer.substring(7).trim()
+        }
+
+        // Only return thinking if it has substantial content
+        if (thinking && thinking.length >= 10) {
+          return { thinking, answer }
+        }
+      }
+    }
+
+    // No thinking found, return everything as answer
+    return { thinking: null, answer: text }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -317,10 +355,15 @@ function App() {
     try {
       const response = await chatAPI.sendMessage(userMessage.content, settings)
 
+      // Parse response.answer to separate thinking and answer
+      // Backend returns everything in response.answer with </think> delimiter
+      const { thinking, answer } = separateThinkingFromAnswer(response.answer || 'No response received')
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response.answer || 'No response received',
+        content: answer,
+        thinking: thinking || undefined,
         timestamp: new Date()
       }
 
@@ -432,7 +475,7 @@ function App() {
                   <input
                     type="range"
                     min="1"
-                    max="40"
+                    max="10"
                     value={settings.k}
                     onChange={(e) => setSettings({...settings, k: parseInt(e.target.value)})}
                     className="w-full"
@@ -506,9 +549,51 @@ function App() {
                       <div className="font-semibold text-sm mb-2 text-canada-red dark:text-red-400">
                         {message.role === 'user' ? 'You' : 'Immigreat'}
                       </div>
-                      <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap leading-relaxed">
-                        {message.content}
-                      </p>
+
+                      {/* Thinking Process (for assistant messages only) */}
+                      {message.role === 'assistant' && message.thinking && (
+                        <details className="mb-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg overflow-hidden">
+                          <summary className="cursor-pointer px-4 py-2 text-sm font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors flex items-center gap-2">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                            </svg>
+                            View thinking process
+                          </summary>
+                          <div className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border-t border-blue-200 dark:border-blue-800">
+                            <div className="italic whitespace-pre-wrap">
+                              {message.thinking}
+                            </div>
+                          </div>
+                        </details>
+                      )}
+
+                      {/* Main Answer */}
+                      <div className="text-gray-800 dark:text-gray-200 prose prose-sm dark:prose-invert max-w-none">
+                        <ReactMarkdown
+                          components={{
+                            // Style links
+                            a: ({node, ...props}) => (
+                              <a {...props} className="text-blue-600 dark:text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer" />
+                            ),
+                            // Style code blocks
+                            code: ({node, className, children, ...props}) => {
+                              const isInline = !className?.includes('language-')
+                              return isInline
+                                ? <code {...props} className="bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded text-sm">{children}</code>
+                                : <code {...props} className="block bg-gray-100 dark:bg-gray-700 p-2 rounded text-sm overflow-x-auto">{children}</code>
+                            },
+                            // Style lists
+                            ul: ({node, ...props}) => <ul {...props} className="list-disc list-inside space-y-1" />,
+                            ol: ({node, ...props}) => <ol {...props} className="list-decimal list-inside space-y-1" />,
+                            // Style headings
+                            h1: ({node, ...props}) => <h1 {...props} className="text-2xl font-bold mt-4 mb-2" />,
+                            h2: ({node, ...props}) => <h2 {...props} className="text-xl font-bold mt-3 mb-2" />,
+                            h3: ({node, ...props}) => <h3 {...props} className="text-lg font-semibold mt-2 mb-1" />,
+                          }}
+                        >
+                          {message.content}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   </div>
                 </div>

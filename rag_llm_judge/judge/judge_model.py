@@ -146,51 +146,67 @@ Judgment:"""
             return 0
         else:
             # Default to 0 if unclear
-            print(f"Warning: Unclear response: {response[:50]}")
+            print(f"Warning: Unclear response: {response}")
             return 0
 
     @torch.no_grad()
-    def judge_single(self, question: str, answer: str) -> Tuple[int, str]:
-        """
-        Judge a single Q&A pair.
+    def judge_single(self, question: str, answer: str):
+        """Judge a single Q&A pair."""
 
-        Args:
-            question: Immigration question
-            answer: Answer to evaluate
+        # CRITICAL: Very explicit prompt!
+        prompt = f"""You are evaluating whether an answer is factually correct for Canadian immigration questions.
 
-        Returns:
-            Tuple of (prediction: 0 or 1, raw_response: str)
-        """
-        prompt = self.create_prompt(question, answer)
+    Question: {question}
 
-        # Tokenize
-        inputs = self.tokenizer(
-            prompt,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=512
-        ).to(self.model.device)
+    Answer to evaluate: {answer}
 
-        # Generate
-        outputs = self.model.generate(
-            **inputs,
-            max_new_tokens=10,
-            do_sample=False,  # Greedy decoding for consistency
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=self.tokenizer.eos_token_id
-        )
+    Your task: Determine if the answer is factually correct and helpful.
 
-        # Decode
-        response = self.tokenizer.decode(
-            outputs[0][inputs['input_ids'].shape[1]:],
-            skip_special_tokens=True
-        )
+    Respond with ONLY ONE WORD:
+    - Reply "YES" if the answer is factually correct
+    - Reply "NO" if the answer is incorrect or unhelpful
 
-        # Parse to binary label
-        prediction = self.parse_response(response)
+    Do not explain. Do not include URLs. Do not copy from the answer.
+    Just output: YES or NO
 
-        return prediction, response
+    Your response:"""
+
+        # Format for the model
+        messages = [{"role": "user", "content": prompt}]
+
+        # Generate response
+        inputs = self.tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            return_tensors="pt"
+        ).to(self.device)
+
+        with torch.no_grad():
+            outputs = self.model.generate(
+                inputs,
+                max_new_tokens=10,  # Only need "YES" or "NO"!
+                temperature=0.1,  # Very low temperature for consistency
+                do_sample=False,  # Greedy decoding
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+
+        # Decode response
+        response = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+        response = response.strip().upper()
+
+        # Debug print
+        print(f"Judge raw response: '{response}'")
+
+        # Look for YES/NO
+        if "YES" in response:
+            return 1, response
+        elif "NO" in response:
+            return 0, response
+        else:
+            print(f"⚠️ Warning: Judge gave unclear response: {response}")
+            print(f"   Question: {question[:50]}...")
+            print(f"   Answer: {answer[:50]}...")
+            return 0, response
 
     @torch.no_grad()
     def judge_batch(self, questions: List[str], answers: List[str]) -> List[int]:
