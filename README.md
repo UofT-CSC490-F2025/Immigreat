@@ -79,7 +79,6 @@
 - React 19.2 + TypeScript
 - Vite 7.2 (build tool)
 - Tailwind CSS 3.4
-- Radix UI components
 - AWS Amplify (hosting)
 
 **Data Pipeline:**
@@ -173,7 +172,7 @@ Frontend automatically deploys via **AWS Amplify** when pushing to `main` branch
 
 ## 📊 Project Structure
 
-```
+```  
 Immigreat/
 ├── frontend/                   # React frontend application
 │   └── immigreat/
@@ -368,6 +367,7 @@ University of Toronto
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
 
 </div>
+
 
 
 
