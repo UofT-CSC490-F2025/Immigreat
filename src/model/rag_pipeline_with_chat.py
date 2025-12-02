@@ -36,11 +36,11 @@ ANTHROPIC_VERSION = os.environ.get('ANTHROPIC_VERSION', 'bedrock-2023-05-31')  #
 DYNAMODB_CHAT_TABLE = os.environ.get('DYNAMODB_CHAT_TABLE')
 DEBUG_BEDROCK_LOG = True
 SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD', '0.3'))  # Minimum similarity score
-FE_RAG_ENABLE = True
+FE_RAG_ENABLE = os.environ.get('FE_RAG_ENABLE', 'true').lower() == 'true'
+RERANK_ENABLE = os.environ.get('RERANK_ENABLE', 'true').lower() == 'true'
 FE_RAG_FACETS = [c.strip() for c in os.environ.get('FE_RAG_FACETS', 'source,title,section').split(',') if c.strip()]
 FE_RAG_MAX_FACET_VALUES = int(os.environ.get('FE_RAG_MAX_FACET_VALUES', '2'))
 FE_RAG_EXTRA_LIMIT = int(os.environ.get('FE_RAG_EXTRA_LIMIT', '5'))
-RERANK_ENABLE = True
 RERANK_MODEL_ID = os.environ.get('RERANK_MODEL', 'cohere.rerank-v3-5:0')
 try:
     RERANK_API_VERSION = int(os.environ.get('RERANK_API_VERSION', '2'))
@@ -282,9 +282,9 @@ def expand_via_facets(conn, initial_chunks, query_emb, extra_limit=5):
 
 
 def rerank_chunks(query: str, chunks):
-    """Reranking using Cohere Rerank (Bedrock) if enabled."""
-    if not RERANK_ENABLE or not chunks:
-        return chunks[:CONTEXT_MAX_CHUNKS]
+    """Reranking using Cohere Rerank (Bedrock)."""
+    if not chunks:
+        return []
     try:
         docs = [r[1] for r in chunks]
         body = json.dumps({
@@ -514,7 +514,10 @@ def handler(event, context):
     # Extract query and session_id
     user_query = None
     session_id = None
-
+    k = 5
+    use_facets = FE_RAG_ENABLE
+    use_rerank = RERANK_ENABLE
+    
     if isinstance(event, dict):
         if 'query' in event:  # Direct invoke
             user_query = event.get('query')

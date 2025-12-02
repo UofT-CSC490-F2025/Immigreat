@@ -99,31 +99,12 @@ def _describe_table(table: str):
             return {"columns": cols, "indexes": idxs}
 
 
-def _first_row(table: str, order_by: str | None = None, columns: list[str] | None = None):
-    """Return the first row from a table as a dict.
-
-    Notes:
-    - Uses LIMIT 1; if order_by is provided, orders ascending by that column.
-    - If columns is provided, only selects those identifiers; otherwise selects all (*).
-    - All identifiers are safely quoted using psycopg2.sql.Identifier.
-    """
+def _first_row(table: str):
+    """Return the first row from a table as a dict (SELECT * FROM table LIMIT 1)."""
     with _get_db_conn() as conn:
         with conn.cursor() as cur:
-            # Build SELECT list
-            if columns:
-                col_sql = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
-            else:
-                col_sql = sql.SQL("*")
-
-            # Optional ORDER BY
-            order_sql = sql.SQL("")
-            if order_by:
-                order_sql = sql.SQL(" ORDER BY {} ASC").format(sql.Identifier(order_by))
-
-            query = sql.SQL("SELECT {cols} FROM {tbl}{order} LIMIT 1").format(
-                cols=col_sql,
+            query = sql.SQL("SELECT * FROM {tbl} LIMIT 1").format(
                 tbl=sql.Identifier(table),
-                order=order_sql,
             )
 
             cur.execute(query)
@@ -153,11 +134,7 @@ def handler(event, context):
             table = payload.get("table")
             if not table:
                 return {"statusCode": 400, "body": json.dumps({"error": "Missing 'table' for first"})}
-            order_by = payload.get("order_by")
-            columns = payload.get("columns")
-            if columns is not None and not isinstance(columns, list):
-                return {"statusCode": 400, "body": json.dumps({"error": "'columns' must be a list of strings"})}
-            result = _first_row(table, order_by=order_by, columns=columns)
+            result = _first_row(table)
             return {"statusCode": 200, "body": json.dumps({"table": table, **result}, default=str)}
         else:
             return {"statusCode": 400, "body": json.dumps({"error": "Unknown action. Use 'tables', 'describe', or 'first'"})}

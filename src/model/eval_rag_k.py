@@ -5,8 +5,6 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-import torch
-
 # Get paths
 script_dir = Path(__file__).resolve().parent
 model_dir = script_dir
@@ -18,9 +16,9 @@ rag_judge_dir = immigreat_dir / "rag_llm_judge"
 sys.path.insert(0, str(rag_judge_dir))
 sys.path.insert(0, str(model_dir))
 
-from judge.judge_model import ImmigrationJudge
+from rag_llm_judge.judge.judge_model import ImmigrationJudge
 from peft import PeftModel
-from training_data.questions import QUESTIONS_DATA, NEGATIVE_QUESTIONS
+from testing_data.questions import QUESTIONS_DATA, NEGATIVE_QUESTIONS
 
 LAMBDA_URL = "https://pym5mhopdyechc5a2pp6eim5mq0otoly.lambda-url.us-east-1.on.aws/"
 LAMBDA_NAME = "rag_pipeline-function-prod"
@@ -192,7 +190,7 @@ if __name__ == "__main__":
 
     # Load trained judge
     print("\nLoading trained judge model...")
-    judge = ImmigrationJudge(quantize=True, use_lora=False, device="cuda")
+    judge = ImmigrationJudge(quantize=True, use_lora=False, device="cpu")
 
     adapter_path = rag_judge_dir / "outputs" / "ep_5" / "checkpoints" / "best_model_lora_adapters"
     judge.model = PeftModel.from_pretrained(judge.model, adapter_path)
@@ -202,7 +200,7 @@ if __name__ == "__main__":
     print("      No ground truth labels - pure relative comparison between configs.\n")
 
     # Configuration to test
-    ks = [5, 15]
+    ks = [3, 8, 12]
     facet_options = [True, False]
     rerank_options = [True, False]
 

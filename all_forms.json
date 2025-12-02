@@ -1,0 +1,12 @@
+[
+  {
+    "id": "d643225e-5a59-4d77-b075-3287df434104",
+    "title": "Form content",
+    "section": "PageTextHeuristic",
+    "content": "Form content",
+    "source": "https://example.com/form.pdf",
+    "date_published": null,
+    "date_scraped": "2025-11-27",
+    "granularity": "page-level"
+  }
+]

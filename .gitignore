@@ -16,3 +16,19 @@ refugeelawlab_data_en.json
 irpr_irpa_data.json
 ircc_scraped_data.json
 secret.txt
+
+# Testing
+.pytest_cache/
+.coverage
+coverage.xml
+coverage.json
+htmlcov/
+.tox/
+.hypothesis/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
