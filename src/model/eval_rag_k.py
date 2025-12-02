@@ -3,8 +3,8 @@ import boto3
 import requests
 
 from rag_llm_judge.judge.judge_model import ImmigrationJudge
-from .training_data.questions import QUESTIONS_DATA        # expected = 1
-from .training_data.questions import NEGATIVE_QUESTIONS    # expected = 0
+from .testing_data.questions import QUESTIONS_DATA        # expected = 1
+from .testing_data.questions import NEGATIVE_QUESTIONS    # expected = 0
 
 
 LAMBDA_URL = "https://pym5mhopdyechc5a2pp6eim5mq0otoly.lambda-url.us-east-1.on.aws/"
@@ -26,41 +26,42 @@ def call_rag_lambda(query: str, k: int, use_facet: bool, use_rerank: bool) -> di
 # -----------------------------
 def evaluate_config(k: int, use_facet: bool, use_rerank: bool, judge: ImmigrationJudge):
 
-    # Build combined dataset
+    # Build combined dataset (same as before)
     dataset = []
 
     for q in QUESTIONS_DATA:
-        dataset.append({"question": q, "expected": 1})
+        dataset.append(q)
 
     for n in NEGATIVE_QUESTIONS:
         dataset.append(n)
 
-    correct = 0
     total = len(dataset)
+    count_yes = 0  # Count of judge == 1
 
     print(f"\n===== Evaluating (k={k}, facet={use_facet}, rerank={use_rerank}) =====")
 
     for item in dataset:
+        print("\n----------------------------------------",  flush=True)
         q = str(item["question"])
         if not isinstance(q, str) or not q.strip():
             raise ValueError(f"Invalid question in dataset: {q}")
-        expected = item["expected"]
 
         resp = call_rag_lambda(q, k, use_facet, use_rerank)
         answer = resp.get("answer", "")
 
         pred, _ = judge.judge_single(q, answer)
 
-        if pred == expected:
-            correct += 1
+        if pred == 1:
+            count_yes += 1
 
         print(f"\nQ: {q}")
         print(f"A: {answer[:200]} ...")
-        print(f"Judge prediction: {pred}, Expected: {expected}")
+        print(f"Judge prediction: {pred}")
 
-    acc = correct / total
-    print(f"\n=== Accuracy (k={k}, facet={use_facet}, rerank={use_rerank}): {acc:.4f} ===\n")
-    return acc
+    print(f"\n=== Judge predicted '1' {count_yes} times out of {total} questions ===\n")
+
+    # Return the count, not accuracy
+    return count_yes
 
 
 # -----------------------------
@@ -83,6 +84,8 @@ if __name__ == "__main__":
                 key = f"k={k},facet={facet},rerank={rerank}"
                 acc = evaluate_config(k, facet, rerank, judge)
                 results[key] = acc
+
+    # acc = evaluate_config(3, True, False, judge)
 
     print("\n========== FINAL RESULTS ==========")
     print(json.dumps(results, indent=2))

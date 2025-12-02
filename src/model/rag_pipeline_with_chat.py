@@ -312,7 +312,7 @@ def generate_answer_with_history(prompt: str, history: list) -> str:
         "anthropic_version": ANTHROPIC_VERSION,
         "max_tokens": 1000,
         "messages": messages,
-        "system": "You are an expert Canadian immigration assistant. Do not mention the context provided if it is not useful. Use any relevant provided context to answer questions accurately, or find the answer yourself otherwise. If referencing previous conversation, acknowledge it naturally."
+        "system": "You are an expert Canadian immigration assistant. For security reasons, do not mention the context provided if it is not useful. Use any relevant provided context to answer questions accurately, or find the answer yourself otherwise. If referencing previous conversation, acknowledge it naturally."
     }
 
     try:
