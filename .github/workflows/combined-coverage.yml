@@ -1,0 +1,355 @@
+name: Combined Test Coverage
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+jobs:
+  backend-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.13"]
+    env:
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_REGION: us-east-1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run backend tests with coverage
+        run: |
+          pytest --cov=src --cov-report=xml --cov-report=term --cov-report=html --cov-report=json
+
+      - name: Extract backend coverage
+        id: backend-coverage
+        run: |
+          BACKEND_COV=$(python -c "import json; data=json.load(open('coverage.json')); print(f'{data[\"totals\"][\"percent_covered\"]:.2f}')")
+          echo "coverage=$BACKEND_COV" >> $GITHUB_OUTPUT
+          BACKEND_LINES=$(python -c "import json; data=json.load(open('coverage.json')); print(data['totals']['covered_lines'])")
+          echo "lines=$BACKEND_LINES" >> $GITHUB_OUTPUT
+          BACKEND_TOTAL=$(python -c "import json; data=json.load(open('coverage.json')); print(data['totals']['num_statements'])")
+          echo "total=$BACKEND_TOTAL" >> $GITHUB_OUTPUT
+
+      - name: Upload backend coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: |
+            coverage.json
+            coverage.xml
+            htmlcov/
+          retention-days: 30
+
+  frontend-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    defaults:
+      run:
+        working-directory: frontend/immigreat
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+          cache-dependency-path: frontend/immigreat/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run frontend tests with coverage
+        run: npm run test:coverage
+        env:
+          VITE_API_URL: http://localhost:3000/api
+
+      - name: Extract frontend coverage
+        id: frontend-coverage
+        working-directory: frontend/immigreat
+        run: |
+          FRONTEND_COV=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('coverage/coverage-summary.json')); console.log(data.total.lines.pct.toFixed(2));")
+          echo "coverage=$FRONTEND_COV" >> $GITHUB_OUTPUT
+          FRONTEND_LINES=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('coverage/coverage-summary.json')); console.log(data.total.lines.covered);")
+          echo "lines=$FRONTEND_LINES" >> $GITHUB_OUTPUT
+          FRONTEND_TOTAL=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('coverage/coverage-summary.json')); console.log(data.total.lines.total);")
+          echo "total=$FRONTEND_TOTAL" >> $GITHUB_OUTPUT
+
+      - name: Upload frontend coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: |
+            frontend/immigreat/coverage/
+          retention-days: 30
+
+  combined-report:
+    needs: [backend-test, frontend-test]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download backend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend-coverage/
+
+      - name: Download frontend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend-coverage/
+
+      - name: Generate combined coverage report
+        id: combined
+        run: |
+          # Extract backend coverage
+          BACKEND_COV=$(python -c "import json; data=json.load(open('backend-coverage/coverage.json')); print(f'{data[\"totals\"][\"percent_covered\"]:.2f}')")
+          BACKEND_LINES=$(python -c "import json; data=json.load(open('backend-coverage/coverage.json')); print(data['totals']['covered_lines'])")
+          BACKEND_TOTAL=$(python -c "import json; data=json.load(open('backend-coverage/coverage.json')); print(data['totals']['num_statements'])")
+
+          # Extract frontend coverage
+          FRONTEND_COV=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('frontend-coverage/coverage/coverage-summary.json')); console.log(data.total.lines.pct.toFixed(2));")
+          FRONTEND_LINES=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('frontend-coverage/coverage/coverage-summary.json')); console.log(data.total.lines.covered);")
+          FRONTEND_TOTAL=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('frontend-coverage/coverage/coverage-summary.json')); console.log(data.total.lines.total);")
+
+          # Calculate total coverage
+          TOTAL_LINES=$((BACKEND_LINES + FRONTEND_LINES))
+          TOTAL_STATEMENTS=$((BACKEND_TOTAL + FRONTEND_TOTAL))
+          TOTAL_COV=$(python -c "print(f'{($TOTAL_LINES / $TOTAL_STATEMENTS * 100):.2f}')")
+
+          echo "backend_coverage=$BACKEND_COV" >> $GITHUB_OUTPUT
+          echo "frontend_coverage=$FRONTEND_COV" >> $GITHUB_OUTPUT
+          echo "total_coverage=$TOTAL_COV" >> $GITHUB_OUTPUT
+          echo "backend_lines=$BACKEND_LINES" >> $GITHUB_OUTPUT
+          echo "backend_total=$BACKEND_TOTAL" >> $GITHUB_OUTPUT
+          echo "frontend_lines=$FRONTEND_LINES" >> $GITHUB_OUTPUT
+          echo "frontend_total=$FRONTEND_TOTAL" >> $GITHUB_OUTPUT
+          echo "total_lines=$TOTAL_LINES" >> $GITHUB_OUTPUT
+          echo "total_statements=$TOTAL_STATEMENTS" >> $GITHUB_OUTPUT
+
+      - name: Create coverage comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            const backendCov = '${{ steps.combined.outputs.backend_coverage }}';
+            const frontendCov = '${{ steps.combined.outputs.frontend_coverage }}';
+            const totalCov = '${{ steps.combined.outputs.total_coverage }}';
+            const backendLines = '${{ steps.combined.outputs.backend_lines }}';
+            const backendTotal = '${{ steps.combined.outputs.backend_total }}';
+            const frontendLines = '${{ steps.combined.outputs.frontend_lines }}';
+            const frontendTotal = '${{ steps.combined.outputs.frontend_total }}';
+            const totalLines = '${{ steps.combined.outputs.total_lines }}';
+            const totalStatements = '${{ steps.combined.outputs.total_statements }}';
+
+            // Load detailed coverage data
+            const backendData = JSON.parse(fs.readFileSync('backend-coverage/coverage.json', 'utf8'));
+            const frontendData = JSON.parse(fs.readFileSync('frontend-coverage/coverage/coverage-summary.json', 'utf8'));
+
+            // Determine badge color
+            const getColor = (cov) => {
+              const coverage = parseFloat(cov);
+              if (coverage >= 90) return 'brightgreen';
+              if (coverage >= 80) return 'green';
+              if (coverage >= 70) return 'yellow';
+              if (coverage >= 60) return 'orange';
+              return 'red';
+            };
+
+            const backendBadge = `https://img.shields.io/badge/Backend-${backendCov}%25-${getColor(backendCov)}`;
+            const frontendBadge = `https://img.shields.io/badge/Frontend-${frontendCov}%25-${getColor(frontendCov)}`;
+            const totalBadge = `https://img.shields.io/badge/Total-${totalCov}%25-${getColor(totalCov)}`;
+
+            // Build backend file breakdown
+            let backendBreakdown = '\n### 🐍 Backend Coverage Breakdown\n\n';
+            backendBreakdown += '| File | Statements | Missing | Coverage |\n';
+            backendBreakdown += '|------|------------|---------|----------|\n';
+
+            const backendFiles = backendData.files;
+            for (const [filePath, fileData] of Object.entries(backendFiles).sort()) {
+              if (filePath.startsWith('src/')) {
+                const name = filePath.replace('src/', '');
+                const stmts = fileData.summary.num_statements;
+                const missing = fileData.summary.missing_lines;
+                const covered = fileData.summary.percent_covered.toFixed(2);
+                backendBreakdown += `| \`${name}\` | ${stmts} | ${missing} | ${covered}% |\n`;
+              }
+            }
+
+            // Build frontend file breakdown
+            let frontendBreakdown = '\n### ⚛️ Frontend Coverage Breakdown\n\n';
+            frontendBreakdown += '| File | Statements | Branches | Functions | Lines |\n';
+            frontendBreakdown += '|------|------------|----------|-----------|-------|\n';
+
+            for (const [filePath, fileData] of Object.entries(frontendData).sort()) {
+              if (filePath !== 'total' && !filePath.includes('node_modules')) {
+                const name = filePath.replace(/^.*\/frontend\/immigreat\//, '');
+                const stmts = `${fileData.statements.covered}/${fileData.statements.total} (${fileData.statements.pct.toFixed(2)}%)`;
+                const branches = `${fileData.branches.covered}/${fileData.branches.total} (${fileData.branches.pct.toFixed(2)}%)`;
+                const funcs = `${fileData.functions.covered}/${fileData.functions.total} (${fileData.functions.pct.toFixed(2)}%)`;
+                const lines = `${fileData.lines.covered}/${fileData.lines.total} (${fileData.lines.pct.toFixed(2)}%)`;
+                frontendBreakdown += `| \`${name}\` | ${stmts} | ${branches} | ${funcs} | ${lines} |\n`;
+              }
+            }
+
+            const comment = `## 📊 Combined Test Coverage Report
+
+            ![Backend Coverage](${backendBadge}) ![Frontend Coverage](${frontendBadge}) ![Total Coverage](${totalBadge})
+
+            ### Summary
+
+            | Component | Coverage | Lines Covered | Total Lines |
+            |-----------|----------|---------------|-------------|
+            | 🐍 **Backend** | **${backendCov}%** | ${backendLines} | ${backendTotal} |
+            | ⚛️ **Frontend** | **${frontendCov}%** | ${frontendLines} | ${frontendTotal} |
+            | 📦 **Total** | **${totalCov}%** | ${totalLines} | ${totalStatements} |
+
+            ${backendBreakdown}
+
+            ${frontendBreakdown}
+
+            ---
+            <details>
+            <summary>📝 How to interpret this report</summary>
+
+            - **Backend Coverage**: Line coverage for Python source files
+            - **Frontend Coverage**: Comprehensive coverage including statements, branches, functions, and lines for TypeScript/React files
+            - **Total Coverage**: Weighted average of all covered lines across both codebases
+
+            </details>
+
+            ---
+            *Coverage reports generated by GitHub Actions*`;
+
+            // Find existing comment
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.data.find(comment => 
+              comment.user.type === 'Bot' && comment.body.includes('Combined Test Coverage Report')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
+
+  update-readme:
+    needs: [backend-test, frontend-test]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download backend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend-coverage/
+
+      - name: Download frontend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend-coverage/
+
+      - name: Calculate combined coverage
+        id: coverage
+        run: |
+          # Extract backend coverage
+          BACKEND_LINES=$(python -c "import json; data=json.load(open('backend-coverage/coverage.json')); print(data['totals']['covered_lines'])")
+          BACKEND_TOTAL=$(python -c "import json; data=json.load(open('backend-coverage/coverage.json')); print(data['totals']['num_statements'])")
+
+          # Extract frontend coverage
+          FRONTEND_LINES=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('frontend-coverage/coverage/coverage-summary.json')); console.log(data.total.lines.covered);")
+          FRONTEND_TOTAL=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('frontend-coverage/coverage/coverage-summary.json')); console.log(data.total.lines.total);")
+
+          # Calculate total coverage
+          TOTAL_LINES=$((BACKEND_LINES + FRONTEND_LINES))
+          TOTAL_STATEMENTS=$((BACKEND_TOTAL + FRONTEND_TOTAL))
+          TOTAL_COV=$(python -c "print(f'{($TOTAL_LINES / $TOTAL_STATEMENTS * 100):.2f}')")
+
+          echo "total_coverage=$TOTAL_COV" >> $GITHUB_OUTPUT
+
+      - name: Update README badge
+        run: |
+          COVERAGE="${{ steps.coverage.outputs.total_coverage }}"
+
+          # Determine badge color
+          if (( $(echo "$COVERAGE >= 90" | bc -l) )); then
+            COLOR="brightgreen"
+          elif (( $(echo "$COVERAGE >= 80" | bc -l) )); then
+            COLOR="green"
+          elif (( $(echo "$COVERAGE >= 70" | bc -l) )); then
+            COLOR="yellow"
+          elif (( $(echo "$COVERAGE >= 60" | bc -l) )); then
+            COLOR="orange"
+          else
+            COLOR="red"
+          fi
+
+          # Update coverage badge in README
+          sed -i "s/coverage-[0-9.]*%25-[a-z]*/coverage-${COVERAGE}%25-${COLOR}/" README.md
+
+          # Verify the change
+          grep "coverage-${COVERAGE}" README.md
+
+      - name: Commit README changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add README.md
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update combined coverage badge to ${{ steps.coverage.outputs.total_coverage }}% [skip ci]"
+          git push
