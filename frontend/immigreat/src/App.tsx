@@ -299,6 +299,22 @@ function App() {
 
   // Function to separate thinking process from actual answer
   const separateThinkingFromAnswer = (text: string): { thinking: string | null, answer: string } => {
+    // First, check for DeepSeek R1 style <think> tags
+    if (text.includes('<think>') && text.includes('</think>')) {
+      const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/i)
+      if (thinkMatch) {
+        let thinking = thinkMatch[1].trim()
+        let answer = text.replace(/<think>[\s\S]*?<\/think>/i, '').trim()
+
+        // Remove "Answer:" prefix from answer if present
+        answer = answer.replace(/^\*\*Answer:\*\*\s*/i, '').trim()
+        answer = answer.replace(/^Answer:\s*/i, '').trim()
+
+        return { thinking, answer }
+      }
+    }
+
+    // Fallback: Look for markdown-based separation
     const lines = text.split('\n')
     let separatorIndex = -1
 
@@ -310,7 +326,7 @@ function App() {
         separatorIndex = i
         break
       }
-      if (line.startsWith('###') || line.startsWith('##')) {
+      if (line.startsWith('###') || line.startsWith('##') || line.startsWith('# ')) {
         separatorIndex = i
         break
       }
