@@ -27,8 +27,8 @@
 ### Key Highlights
 
 - 🎯 **96.98% test coverage** with comprehensive failure mode testing
-- ⚡ **Sub-3 second query latency** with stage-level performance metrics
-- 🔍 **FE-RAG (Facet-Expanded RAG)** - Modern retrieval enhancement increasing source diversity by 23%
+- ⚡ **Low query latency** with stage-level performance metrics
+- 🔍 **FE-RAG (Facet-Expanded RAG)** - Modern retrieval enhancement increasing source diversity.
 - 🏗️ **Serverless architecture** on AWS with automatic scaling
 - 🔒 **Production-grade resilience** - Exponential backoff, graceful degradation, ACID guarantees
 
@@ -364,4 +364,5 @@ University of Toronto
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
 
 </div>
+
 
