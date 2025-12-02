@@ -194,7 +194,7 @@ if __name__ == "__main__":
     print("\nLoading trained judge model...")
     judge = ImmigrationJudge(quantize=True, use_lora=False, device="cuda")
 
-    adapter_path = r"C:\Users\Yony\CSC_material\CSC490\Immigreat\rag_llm_judge\outputs\ep_5\checkpoints\best_model_lora_adapters"
+    adapter_path = rag_judge_dir / "outputs" / "ep_5" / "checkpoints" / "best_model_lora_adapters"
     judge.model = PeftModel.from_pretrained(judge.model, adapter_path)
 
     print("✅ Trained judge loaded (93.3% validation accuracy)")
