@@ -29,8 +29,8 @@
 - 🎯 **95.06% test coverage** with comprehensive failure mode testing
 - ⚡ **Low query latency** with stage-level performance metrics
 - 🔍 **FE-RAG (Facet-Expanded RAG)** - Modern retrieval enhancement increasing source diversity.
-- **Reranking** - Rerank retrieved chunks based on relevancy
-- **RL Judge Filtering** - Improved answer accuracy using RL Judge Filtering
+- 🥉: **Reranking** - Rerank retrieved chunks based on relevancy
+- 🕵️: **RL Judge Filtering** - Improved answer accuracy using RL Judge Filtering
 - 🏗️ **Serverless architecture** on AWS with automatic scaling
 - 🔒 **Production-grade resilience** - Exponential backoff, graceful degradation, ACID guarantees
 
@@ -110,7 +110,7 @@ cd Immigreat
 
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\Activate.ps1
 
 # Install dependencies
 pip install -r requirements-dev.txt
@@ -139,10 +139,15 @@ npm run build
 
 ### Deployment
 
+For this section, we have been using either Linux / Unix, or running these commands in wsl (Windows Subsystem for Linux) if we are on a Windows
+
 #### Infrastructure Provisioning
 
 ```bash
 cd infra
+
+# (Optional) If unable to run the lambda as is:
+dos2unix scripts/build_lambda.sh
 
 # Build lambda
 ./scripts/build_lambda.sh
@@ -367,6 +372,7 @@ University of Toronto
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
 
 </div>
+
 
 
 
