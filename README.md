@@ -146,11 +146,8 @@ For this section, we have been using either Linux / Unix, or running these comma
 ```bash
 cd infra
 
-# (Optional) If unable to run the lambda as is:
+# (For Windows) If unable to run the lambda as is:
 dos2unix scripts/build_lambda.sh
-
-# Build lambda
-./scripts/build_lambda.sh
 
 # Initialize Terraform
 terraform init
@@ -160,9 +157,6 @@ terraform plan -var-file=enviroments/dev.tfvars
 
 # Apply infrastructure
 terraform apply -var-file=enviroments/dev.tfvars
-
-# Deploy Lambda functions
-./scripts/deploy_dev.sh
 ```
 
 #### Frontend Deployment
@@ -271,7 +265,6 @@ We maintain **>90% code coverage** across all modules:
 - 🚀 [QUICKSTART_TESTING.md](QUICKSTART_TESTING.md) - Quick testing reference
 - 📊 [TEST_COVERAGE_SUMMARY.md](TEST_COVERAGE_SUMMARY.md) - Coverage implementation details
 - 📝 [IMPLEMENTATION_CHECKLIST.md](IMPLEMENTATION_CHECKLIST.md) - Project milestones
-- 📄 [technical_approach.tex](technical_approach.tex) - Academic paper on system design
 
 ### Additional Resources
 
@@ -378,6 +371,7 @@ University of Toronto
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
 
 </div>
+
 
 
 
