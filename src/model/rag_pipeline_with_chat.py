@@ -63,33 +63,36 @@ def parse_deepseek_response(response_text: str):
     """
     Parse DeepSeek R1 response to separate thinking and answer.
 
-    DeepSeek R1 returns: <think>reasoning...</think>\n\nAnswer: actual response
+    DeepSeek R1 ALWAYS returns: [thinking]</think>\n\n[answer]
+    The </think> tag is the reliable delimiter.
 
     Returns:
         dict with 'thinking' and 'answer' keys
     """
-    import re
-
     thinking = None
     answer = response_text
 
-    # Check for <think> tags
-    think_pattern = r'<think>(.*?)</think>'
-    think_match = re.search(think_pattern, response_text, re.DOTALL | re.IGNORECASE)
+    # Split on </think> - this is the reliable delimiter
+    if '</think>' in response_text:
+        parts = response_text.split('</think>', 1)  # Split only on first occurrence
 
-    if think_match:
-        thinking = think_match.group(1).strip()
+        if len(parts) == 2:
+            thinking_raw = parts[0].strip()
+            answer = parts[1].strip()
 
-        # Remove thinking tags from the answer
-        answer = re.sub(think_pattern, '', response_text, flags=re.DOTALL | re.IGNORECASE).strip()
+            # Remove the opening <think> tag if present
+            if thinking_raw.startswith('<think>'):
+                thinking_raw = thinking_raw[7:].strip()  # Remove '<think>'
 
-        # If thinking is too short or empty, don't include it
-        if not thinking or len(thinking) < 10:
-            thinking = None
+            # Only include thinking if it has actual content
+            if thinking_raw and len(thinking_raw) >= 10:
+                thinking = thinking_raw
 
     # Clean up answer - remove common prefixes
-    answer = re.sub(r'^\*\*Answer:\*\*\s*', '', answer, flags=re.IGNORECASE).strip()
-    answer = re.sub(r'^Answer:\s*', '', answer, flags=re.IGNORECASE).strip()
+    if answer.startswith('**Answer:**'):
+        answer = answer[11:].strip()
+    elif answer.startswith('Answer:'):
+        answer = answer[7:].strip()
 
     # Remove meta-commentary phrases
     answer = answer.replace("Based on the context provided, ", "")
