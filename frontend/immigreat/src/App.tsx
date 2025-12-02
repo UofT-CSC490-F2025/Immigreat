@@ -297,56 +297,6 @@ function App() {
     }
   }
 
-  // Function to separate thinking process from actual answer
-  const separateThinkingFromAnswer = (text: string): { thinking: string | null, answer: string } => {
-    // First, check for DeepSeek R1 style <think> tags
-    if (text.includes('<think>') && text.includes('</think>')) {
-      const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/i)
-      if (thinkMatch) {
-        let thinking = thinkMatch[1].trim()
-        let answer = text.replace(/<think>[\s\S]*?<\/think>/i, '').trim()
-
-        // Remove "Answer:" prefix from answer if present
-        answer = answer.replace(/^\*\*Answer:\*\*\s*/i, '').trim()
-        answer = answer.replace(/^Answer:\s*/i, '').trim()
-
-        return { thinking, answer }
-      }
-    }
-
-    // Fallback: Look for markdown-based separation
-    const lines = text.split('\n')
-    let separatorIndex = -1
-
-    // Find where the actual answer starts (usually first markdown heading or bold text)
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim()
-      // Look for markdown headings or structured bold text that indicates start of answer
-      if (line.startsWith('**') && line.endsWith('**') && line.length > 4) {
-        separatorIndex = i
-        break
-      }
-      if (line.startsWith('###') || line.startsWith('##') || line.startsWith('# ')) {
-        separatorIndex = i
-        break
-      }
-    }
-
-    // If we found a separator
-    if (separatorIndex > 0) {
-      const thinking = lines.slice(0, separatorIndex).join('\n').trim()
-      const answer = lines.slice(separatorIndex).join('\n').trim()
-
-      // Only return thinking if it looks like reasoning (has some content)
-      if (thinking.length > 50) {
-        return { thinking, answer }
-      }
-    }
-
-    // No thinking process found, return everything as answer
-    return { thinking: null, answer: text }
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -558,7 +508,7 @@ function App() {
                 <div key={message.id} className="mb-6 animate-fadeIn">
                   <div className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-full bg-white dark:bg-gray-800 shadow-md flex items-center justify-center text-xl flex-shrink-0">
-                      {message.role === 'user' ? '👤' : '🤖'}
+                      {message.role === 'user' ? '🙂' : '🍁'}
                     </div>
                     <div className="flex-1 bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
                       <div className="font-semibold text-sm mb-2 text-canada-red dark:text-red-400">
@@ -617,7 +567,7 @@ function App() {
                 <div className="mb-6 animate-fadeIn">
                   <div className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-full bg-white dark:bg-gray-800 shadow-md flex items-center justify-center text-xl flex-shrink-0">
-                      🤖
+                      🍁
                     </div>
                     <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-xl p-5 shadow-sm">
                       <div className="font-semibold text-sm mb-2 text-canada-red-dark dark:text-red-400">
