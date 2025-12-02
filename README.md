@@ -283,9 +283,9 @@ We maintain **>90% code coverage** across all modules:
 
 ## 🔬 Research Components
 
-### FE-RAG (Facet-Expanded RAG)
+### FE-RAG (Facet-Expanded RAG) with Rerank 
 
-Modern metadata-driven retrieval enhancement that increases result diversity by without sacrificing relevance. Exploits document metadata (source, title, section) as lightweight graph edges for coverage expansion.
+Modern metadata-driven retrieval enhancement that increases result diversity by without sacrificing relevance. Exploits document metadata (source, title, section) as lightweight graph edges for coverage expansion. Uses Rerank 
 
 ### RLVR Judge Training
 
@@ -301,6 +301,12 @@ Reinforcement Learning with Verifiable Rewards system for training a judge model
 ---
 
 ## 🚦 Performance Metrics
+
+### RL Judge Performance evaluation over different k values, with and without rerank and facet expansion
+
+<img width="1200" height="600" alt="image" src="https://github.com/user-attachments/assets/207b5541-c105-4be1-9f2b-2da1cdbe6679" />
+<img width="1200" height="600" alt="image" src="https://github.com/user-attachments/assets/ff5ad7fd-5c53-478b-9b42-546a4530dd6c" />
+<img width="800" height="400" alt="image" src="https://github.com/user-attachments/assets/78fa9440-4eaa-4178-9e28-4ce6e8d457fe" />
 
 ### Latency Breakdown (Typical Query)
 
@@ -372,6 +378,7 @@ University of Toronto
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
 
 </div>
+
 
 
 
