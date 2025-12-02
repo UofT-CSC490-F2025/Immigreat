@@ -88,15 +88,9 @@ if __name__ == "__main__":
     for k in ks:
         for facet in facet_options:
             for rerank in rerank_options:
-                if k == 3 and (facet and rerank) or (facet and not rerank):
-                    # Skip redundant configs for k=3
-                    continue
-
                 key = f"k={k},facet={facet},rerank={rerank}"
                 acc = evaluate_config(k, facet, rerank, judge)
                 results[key] = acc
-
-    # acc = evaluate_config(3, True, False, judge)
 
     print("\n========== FINAL RESULTS ==========")
     print(json.dumps(results, indent=2))
