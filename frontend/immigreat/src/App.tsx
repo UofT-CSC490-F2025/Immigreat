@@ -297,6 +297,42 @@ function App() {
     }
   }
 
+  // Function to separate thinking process from actual answer
+  const separateThinkingFromAnswer = (text: string): { thinking: string | null, answer: string } => {
+    // Check for </think> delimiter - this is the reliable split point
+    if (text.includes('</think>')) {
+      const parts = text.split('</think>', 1)  // Split only on first occurrence
+
+      if (parts.length === 2 || text.indexOf('</think>') !== -1) {
+        // Get everything before </think> as thinking
+        let thinking = parts[0].trim()
+
+        // Get everything after </think> as answer
+        let answer = text.substring(text.indexOf('</think>') + 8).trim()  // 8 = length of '</think>'
+
+        // Remove opening <think> tag if present
+        if (thinking.startsWith('<think>')) {
+          thinking = thinking.substring(7).trim()  // 7 = length of '<think>'
+        }
+
+        // Remove "Answer:" prefix from answer if present
+        if (answer.startsWith('**Answer:**')) {
+          answer = answer.substring(11).trim()
+        } else if (answer.startsWith('Answer:')) {
+          answer = answer.substring(7).trim()
+        }
+
+        // Only return thinking if it has substantial content
+        if (thinking && thinking.length >= 10) {
+          return { thinking, answer }
+        }
+      }
+    }
+
+    // No thinking found, return everything as answer
+    return { thinking: null, answer: text }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -319,10 +355,9 @@ function App() {
     try {
       const response = await chatAPI.sendMessage(userMessage.content, settings)
 
-      // Backend now returns separate thinking and answer fields
-      // But we still parse as fallback in case backend doesn't separate them
-      let thinking = response.thinking || null
-      let answer = response.answer || 'No response received'
+      // Parse response.answer to separate thinking and answer
+      // Backend returns everything in response.answer with </think> delimiter
+      const { thinking, answer } = separateThinkingFromAnswer(response.answer || 'No response received')
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -508,7 +543,7 @@ function App() {
                 <div key={message.id} className="mb-6 animate-fadeIn">
                   <div className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-full bg-white dark:bg-gray-800 shadow-md flex items-center justify-center text-xl flex-shrink-0">
-                      {message.role === 'user' ? '🙂' : '🍁'}
+                      {message.role === 'user' ? '👤' : '🤖'}
                     </div>
                     <div className="flex-1 bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
                       <div className="font-semibold text-sm mb-2 text-canada-red dark:text-red-400">
@@ -567,7 +602,7 @@ function App() {
                 <div className="mb-6 animate-fadeIn">
                   <div className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-full bg-white dark:bg-gray-800 shadow-md flex items-center justify-center text-xl flex-shrink-0">
-                      🍁
+                      🤖
                     </div>
                     <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-xl p-5 shadow-sm">
                       <div className="font-semibold text-sm mb-2 text-canada-red-dark dark:text-red-400">
