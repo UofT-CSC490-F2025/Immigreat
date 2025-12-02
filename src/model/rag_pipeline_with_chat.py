@@ -23,10 +23,11 @@ dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 
 PGVECTOR_SECRET_ARN = os.environ['PGVECTOR_SECRET_ARN']
 EMBEDDING_MODEL = os.environ.get('BEDROCK_EMBEDDING_MODEL', 'amazon.titan-embed-text-v1')
-CLAUDE_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'anthropic.claude-3-5-sonnet-20240620-v1:0')
+CLAUDE_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'anthropic.claude-3-5-sonnet-20241022-v2:0')
 ANTHROPIC_VERSION = os.environ.get('ANTHROPIC_VERSION', 'bedrock-2023-05-31')
 DYNAMODB_CHAT_TABLE = os.environ.get('DYNAMODB_CHAT_TABLE')
 DEBUG_BEDROCK_LOG = True
+SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD', '0.3'))  # Minimum similarity score
 FE_RAG_ENABLE = True
 FE_RAG_FACETS = [c.strip() for c in os.environ.get('FE_RAG_FACETS', 'source,title,section').split(',') if c.strip()]
 FE_RAG_MAX_FACET_VALUES = int(os.environ.get('FE_RAG_MAX_FACET_VALUES', '2'))
@@ -118,17 +119,34 @@ def get_embedding(text: str):
     return json.loads(resp["body"].read())["embedding"]
 
 
-def retrieve_similar_chunks(conn, embedding, k=5):
+def retrieve_similar_chunks(conn, embedding, k=5, similarity_threshold=None):
+    """Retrieve chunks with optional similarity threshold filtering."""
+    if similarity_threshold is None:
+        similarity_threshold = SIMILARITY_THRESHOLD
+
     cur = conn.cursor()
+    # Retrieve more chunks initially to account for filtering
+    retrieval_k = k * 3
     cur.execute("""
         SELECT id, content, source, title, 1 - (embedding <=> %s::vector) AS similarity
         FROM documents
         ORDER BY embedding <=> %s::vector
         LIMIT %s;
-    """, (embedding, embedding, k))
+    """, (embedding, embedding, retrieval_k))
     rows = cur.fetchall()
     cur.close()
-    return rows
+
+    # Filter by similarity threshold
+    filtered_rows = [r for r in rows if r[4] >= similarity_threshold]
+
+    if DEBUG_BEDROCK_LOG:
+        print(f"Retrieved {len(rows)} chunks, {len(filtered_rows)} above threshold {similarity_threshold}")
+        if filtered_rows:
+            similarities = [r[4] for r in filtered_rows[:k]]
+            print(f"Top {min(k, len(filtered_rows))} similarity scores: {[round(s, 4) for s in similarities]}")
+
+    # Return top k after filtering
+    return filtered_rows[:k]
 
 
 def _top_values(rows, idx, n):
@@ -172,13 +190,20 @@ def expand_via_facets(conn, seed_rows, query_embedding, extra_limit=5):
         section_clause = " OR section = ANY(%s)"
         params += [top_sections]
 
-    params += [query_embedding, extra_limit]
+    params += [query_embedding, extra_limit * 2]  # Retrieve more to account for filtering
     full_sql = sql.format(section_clause=section_clause)
 
     with conn.cursor() as cur:
         cur.execute(full_sql, params)
         extras = cur.fetchall()
-    return extras
+
+    # Filter by similarity threshold
+    filtered_extras = [r for r in extras if r[4] >= SIMILARITY_THRESHOLD]
+
+    if DEBUG_BEDROCK_LOG and filtered_extras:
+        print(f"Facet expansion: {len(extras)} retrieved, {len(filtered_extras)} above threshold")
+
+    return filtered_extras[:extra_limit]
 
 
 def rerank_chunks(query: str, chunks):
@@ -321,7 +346,18 @@ def generate_answer_with_history(prompt: str, history: list) -> str:
         "anthropic_version": ANTHROPIC_VERSION,
         "max_tokens": 1000,
         "messages": messages,
-        "system": "You are an expert Canadian immigration assistant. Use the provided context to answer questions accurately. If referencing previous conversation, acknowledge it naturally."
+        "system": """You are an expert Canadian immigration assistant with deep knowledge of immigration policies, procedures, and requirements.
+
+When answering questions:
+1. CAREFULLY read and analyze the provided context from the knowledge base
+2. Base your answer primarily on the information given in the context
+3. If the context contains relevant information, use it to provide a detailed, accurate answer
+4. If the context is partially relevant, use what's available and clearly indicate what aspects you can address
+5. Only say you don't have enough context if the provided information is truly insufficient or off-topic
+6. When appropriate, reference previous conversation naturally
+7. Be specific and cite relevant details from the context when possible
+
+Remember: The context provided has been carefully selected as relevant to the question. Look for connections and use the information available."""
     }
 
     try:
@@ -366,7 +402,7 @@ def handler(event, context):
         if 'query' in event:  # Direct invoke
             user_query = event.get('query')
             session_id = event.get('session_id')
-            k = event.get('k', 5)
+            k = event.get('k', 10)
             use_facets = event.get('use_facets', FE_RAG_ENABLE)
             use_rerank = event.get('use_rerank', RERANK_ENABLE)
         elif 'body' in event:  # HTTP invoke
@@ -376,7 +412,7 @@ def handler(event, context):
                     parsed = json.loads(raw_body)
                     user_query = parsed.get('query')
                     session_id = parsed.get('session_id')
-                    k = parsed.get('k', 5)
+                    k = parsed.get('k', 10)
                     use_facets = parsed.get('use_facets', FE_RAG_ENABLE)
                     use_rerank = parsed.get('use_rerank', RERANK_ENABLE)
                 except Exception as e:
@@ -443,10 +479,24 @@ def handler(event, context):
             print(f"Final chunk count after rerank: {len(chunks)}")
 
         # Build prompt with context
-        query_context = "\n\n".join([r[1] for r in chunks])
-        
-        # Format: Context + Current Question
-        prompt = f"Context from knowledge base:\n{query_context}\n\nCurrent Question: {user_query}\n\nAnswer based on the context provided:"
+        if not chunks:
+            # No relevant context found
+            prompt = f"""No relevant context was found in the knowledge base for this question.
+
+Question: {user_query}
+
+Please provide a helpful response based on your general knowledge of Canadian immigration, but clearly indicate that this is based on general knowledge rather than specific documentation."""
+        else:
+            query_context = "\n\n".join([r[1] for r in chunks])
+
+            # Format: Context + Current Question
+            prompt = f"""Here is relevant information from the Canadian immigration knowledge base:
+
+{query_context}
+
+Question: {user_query}
+
+Please provide a comprehensive answer based on the context above. Include specific details and cite relevant information from the context."""
         
         print(f"Prompt length: {len(prompt)} characters, History items: {len(chat_history)}")
         
