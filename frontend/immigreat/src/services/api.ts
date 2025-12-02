@@ -11,6 +11,7 @@ export interface ChatRequest {
 
 export interface ChatResponse {
   answer: string;        // Backend uses "answer" not "response"
+  thinking?: string;     // Optional thinking/reasoning process from DeepSeek R1
   session_id: string;    // Session ID for conversation history
   sources?: Array<{
     id: string;
