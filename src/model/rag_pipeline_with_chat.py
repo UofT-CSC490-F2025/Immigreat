@@ -23,7 +23,7 @@ dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 
 PGVECTOR_SECRET_ARN = os.environ['PGVECTOR_SECRET_ARN']
 EMBEDDING_MODEL = os.environ.get('BEDROCK_EMBEDDING_MODEL', 'amazon.titan-embed-text-v1')
-CLAUDE_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'anthropic.claude-3-5-sonnet-20241022-v2:0')
+CLAUDE_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'anthropic.claude-sonnet-4-5-20250929-v1:0')
 ANTHROPIC_VERSION = os.environ.get('ANTHROPIC_VERSION', 'bedrock-2023-05-31')
 DYNAMODB_CHAT_TABLE = os.environ.get('DYNAMODB_CHAT_TABLE')
 DEBUG_BEDROCK_LOG = True
@@ -344,7 +344,7 @@ def generate_answer_with_history(prompt: str, history: list) -> str:
     
     payload = {
         "anthropic_version": ANTHROPIC_VERSION,
-        "max_tokens": 1000,
+        "max_tokens": 2048,
         "messages": messages,
         "system": """You are an expert Canadian immigration assistant with deep knowledge of immigration policies, procedures, and requirements.
 
