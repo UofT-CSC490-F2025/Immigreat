@@ -5,8 +5,6 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-import torch
-
 # Get paths
 script_dir = Path(__file__).resolve().parent
 model_dir = script_dir
@@ -18,7 +16,7 @@ rag_judge_dir = immigreat_dir / "rag_llm_judge"
 sys.path.insert(0, str(rag_judge_dir))
 sys.path.insert(0, str(model_dir))
 
-from judge.judge_model import ImmigrationJudge
+from rag_llm_judge.judge.judge_model import ImmigrationJudge
 from peft import PeftModel
 from training_data.questions import QUESTIONS_DATA, NEGATIVE_QUESTIONS
 
