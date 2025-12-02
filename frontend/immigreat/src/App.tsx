@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { chatAPI, DEFAULT_SETTINGS } from './services/api'
 import type { ChatSettings } from './services/api'
 import logo from './assets/logo.png'
@@ -9,6 +10,7 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
+  thinking?: string  // Optional thinking process for AI responses
 }
 
 interface SavedChat {
@@ -295,6 +297,40 @@ function App() {
     }
   }
 
+  // Function to separate thinking process from actual answer
+  const separateThinkingFromAnswer = (text: string): { thinking: string | null, answer: string } => {
+    const lines = text.split('\n')
+    let separatorIndex = -1
+
+    // Find where the actual answer starts (usually first markdown heading or bold text)
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      // Look for markdown headings or structured bold text that indicates start of answer
+      if (line.startsWith('**') && line.endsWith('**') && line.length > 4) {
+        separatorIndex = i
+        break
+      }
+      if (line.startsWith('###') || line.startsWith('##')) {
+        separatorIndex = i
+        break
+      }
+    }
+
+    // If we found a separator
+    if (separatorIndex > 0) {
+      const thinking = lines.slice(0, separatorIndex).join('\n').trim()
+      const answer = lines.slice(separatorIndex).join('\n').trim()
+
+      // Only return thinking if it looks like reasoning (has some content)
+      if (thinking.length > 50) {
+        return { thinking, answer }
+      }
+    }
+
+    // No thinking process found, return everything as answer
+    return { thinking: null, answer: text }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -317,10 +353,14 @@ function App() {
     try {
       const response = await chatAPI.sendMessage(userMessage.content, settings)
 
+      // Separate thinking process from actual answer
+      const { thinking, answer } = separateThinkingFromAnswer(response.answer || 'No response received')
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response.answer || 'No response received',
+        content: answer,
+        thinking: thinking || undefined,
         timestamp: new Date()
       }
 
@@ -432,7 +472,7 @@ function App() {
                   <input
                     type="range"
                     min="1"
-                    max="40"
+                    max="10"
                     value={settings.k}
                     onChange={(e) => setSettings({...settings, k: parseInt(e.target.value)})}
                     className="w-full"
@@ -500,15 +540,37 @@ function App() {
                 <div key={message.id} className="mb-6 animate-fadeIn">
                   <div className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-full bg-white dark:bg-gray-800 shadow-md flex items-center justify-center text-xl flex-shrink-0">
-                      {message.role === 'user' ? '🙂' : '🍁'}
+                      {message.role === 'user' ? '👤' : '🤖'}
                     </div>
                     <div className="flex-1 bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
                       <div className="font-semibold text-sm mb-2 text-canada-red dark:text-red-400">
                         {message.role === 'user' ? 'You' : 'Immigreat'}
                       </div>
-                      <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap leading-relaxed">
-                        {message.content}
-                      </p>
+                      <div className="text-gray-800 dark:text-gray-200 prose prose-sm dark:prose-invert max-w-none">
+                        <ReactMarkdown
+                          components={{
+                            // Style links
+                            a: ({node, ...props}) => (
+                              <a {...props} className="text-blue-600 dark:text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer" />
+                            ),
+                            // Style code blocks
+                            code: ({node, inline, ...props}) => (
+                              inline
+                                ? <code {...props} className="bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded text-sm" />
+                                : <code {...props} className="block bg-gray-100 dark:bg-gray-700 p-2 rounded text-sm overflow-x-auto" />
+                            ),
+                            // Style lists
+                            ul: ({node, ...props}) => <ul {...props} className="list-disc list-inside space-y-1" />,
+                            ol: ({node, ...props}) => <ol {...props} className="list-decimal list-inside space-y-1" />,
+                            // Style headings
+                            h1: ({node, ...props}) => <h1 {...props} className="text-2xl font-bold mt-4 mb-2" />,
+                            h2: ({node, ...props}) => <h2 {...props} className="text-xl font-bold mt-3 mb-2" />,
+                            h3: ({node, ...props}) => <h3 {...props} className="text-lg font-semibold mt-2 mb-1" />,
+                          }}
+                        >
+                          {message.content}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -517,7 +579,7 @@ function App() {
                 <div className="mb-6 animate-fadeIn">
                   <div className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-full bg-white dark:bg-gray-800 shadow-md flex items-center justify-center text-xl flex-shrink-0">
-                      🍁
+                      🤖
                     </div>
                     <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-xl p-5 shadow-sm">
                       <div className="font-semibold text-sm mb-2 text-canada-red-dark dark:text-red-400">
