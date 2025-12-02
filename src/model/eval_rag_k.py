@@ -34,6 +34,38 @@ def call_rag_lambda(query: str, k: int, use_facet: bool, use_rerank: bool) -> di
     return r.json()
 
 
+def extract_answer_from_response(text: str) -> str:
+    """
+    Extract only the answer part from DeepSeek response.
+    Split on </think> delimiter - same logic as frontend.
+
+    Format: [thinking]</think>\n\n[answer]
+
+    The RL judge should only evaluate the answer, not the thinking process.
+    """
+    if not text:
+        return ""
+
+    # Check for </think> delimiter
+    if '</think>' in text:
+        # Get position of </think>
+        think_end_index = text.find('</think>')
+
+        # Everything after </think> is the answer
+        answer = text[think_end_index + 8:].strip()  # 8 = length of '</think>'
+
+        # Remove "Answer:" prefix if present
+        if answer.startswith('**Answer:**'):
+            answer = answer[11:].strip()
+        elif answer.startswith('Answer:'):
+            answer = answer[7:].strip()
+
+        return answer
+
+    # No </think> tag found, return the whole text
+    return text.strip()
+
+
 def evaluate_config(k: int, use_facet: bool, use_rerank: bool, judge: ImmigrationJudge):
     """
     Evaluate RAG configuration using ONLY judge's assessment.
@@ -62,7 +94,11 @@ def evaluate_config(k: int, use_facet: bool, use_rerank: bool, judge: Immigratio
     for question in all_questions:
         # Get RAG answer
         resp = call_rag_lambda(question, k, use_facet, use_rerank)
-        answer = resp.get("answer", "")
+        raw_answer = resp.get("answer", "")
+
+        # Extract only the answer part (remove thinking process)
+        # The RL judge should only evaluate the answer, not the thinking
+        answer = extract_answer_from_response(raw_answer)
 
         # Judge evaluates (no ground truth comparison!)
         pred, judge_response = judge.judge_single(question, answer)
@@ -73,14 +109,16 @@ def evaluate_config(k: int, use_facet: bool, use_rerank: bool, judge: Immigratio
         # Store detailed result
         detailed_results.append({
             "question": question,
-            "rag_answer": answer,
+            "rag_answer": answer,  # Store the clean answer
+            "rag_answer_raw": raw_answer,  # Store raw for debugging
             "judge_approved": bool(pred),
             "judge_prediction": int(pred),
             "judge_response": judge_response
         })
 
         status = "✓" if pred == 1 else "✗"
-        print(f"{status} Q: {question[:60]}... | A: {answer[:100]}... | Judge: {'APPROVED' if pred == 1 else 'REJECTED'}")
+        print(
+            f"{status} Q: {question[:60]}... | A: {answer[:100]}... | Judge: {'APPROVED' if pred == 1 else 'REJECTED'}")
 
     approval_rate = approved / total
     print(f"\n=== Judge Approval Rate: {approval_rate:.4f} ({approved}/{total}) ===\n")
@@ -164,7 +202,7 @@ if __name__ == "__main__":
     print("      No ground truth labels - pure relative comparison between configs.\n")
 
     # Configuration to test
-    ks = [15]
+    ks = [5, 15]
     facet_options = [True, False]
     rerank_options = [True, False]
 
