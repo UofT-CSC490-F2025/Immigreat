@@ -20,6 +20,12 @@ def call_rag_lambda(query: str, k: int, use_facet: bool, use_rerank: bool) -> di
     r.raise_for_status()
     return r.json()
 
+def extract_deepseek_answer(raw: str) -> str:
+    if raw is None:
+        return ""
+    if "</think>" in raw:
+        return raw.split("</think>", 1)[1].strip()
+    return raw.strip()
 
 # -----------------------------
 # EVALUATION FUNCTION
@@ -47,7 +53,9 @@ def evaluate_config(k: int, use_facet: bool, use_rerank: bool, judge: Immigratio
             raise ValueError(f"Invalid question in dataset: {q}")
 
         resp = call_rag_lambda(q, k, use_facet, use_rerank)
-        answer = resp.get("answer", "")
+        raw_answer = resp.get("answer", "")
+
+        answer = extract_deepseek_answer(raw_answer)
 
         pred, _ = judge.judge_single(q, answer)
 
@@ -80,6 +88,9 @@ if __name__ == "__main__":
     for k in ks:
         for facet in facet_options:
             for rerank in rerank_options:
+                if k == 3 and (facet and rerank) or (facet and not rerank):
+                    # Skip redundant configs for k=3
+                    continue
 
                 key = f"k={k},facet={facet},rerank={rerank}"
                 acc = evaluate_config(k, facet, rerank, judge)
