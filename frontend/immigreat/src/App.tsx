@@ -369,8 +369,17 @@ function App() {
     try {
       const response = await chatAPI.sendMessage(userMessage.content, settings)
 
-      // Separate thinking process from actual answer
-      const { thinking, answer } = separateThinkingFromAnswer(response.answer || 'No response received')
+      // Backend now returns separate thinking and answer fields
+      // But we still parse as fallback in case backend doesn't separate them
+      let thinking = response.thinking || null
+      let answer = response.answer || 'No response received'
+
+      // Fallback: If backend didn't separate, try to parse
+      if (!thinking && answer) {
+        const parsed = separateThinkingFromAnswer(answer)
+        thinking = parsed.thinking
+        answer = parsed.answer
+      }
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),

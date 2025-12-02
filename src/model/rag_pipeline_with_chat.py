@@ -59,6 +59,49 @@ BEDROCK_MAX_JITTER = float(os.environ.get('BEDROCK_MAX_JITTER', '1.0'))
 chat_table = dynamodb.Table(DYNAMODB_CHAT_TABLE) if DYNAMODB_CHAT_TABLE else None
 
 
+def parse_deepseek_response(response_text: str):
+    """
+    Parse DeepSeek R1 response to separate thinking and answer.
+
+    DeepSeek R1 returns: <think>reasoning...</think>\n\nAnswer: actual response
+
+    Returns:
+        dict with 'thinking' and 'answer' keys
+    """
+    import re
+
+    thinking = None
+    answer = response_text
+
+    # Check for <think> tags
+    think_pattern = r'<think>(.*?)</think>'
+    think_match = re.search(think_pattern, response_text, re.DOTALL | re.IGNORECASE)
+
+    if think_match:
+        thinking = think_match.group(1).strip()
+
+        # Remove thinking tags from the answer
+        answer = re.sub(think_pattern, '', response_text, flags=re.DOTALL | re.IGNORECASE).strip()
+
+        # If thinking is too short or empty, don't include it
+        if not thinking or len(thinking) < 10:
+            thinking = None
+
+    # Clean up answer - remove common prefixes
+    answer = re.sub(r'^\*\*Answer:\*\*\s*', '', answer, flags=re.IGNORECASE).strip()
+    answer = re.sub(r'^Answer:\s*', '', answer, flags=re.IGNORECASE).strip()
+
+    # Remove meta-commentary phrases
+    answer = answer.replace("Based on the context provided, ", "")
+    answer = answer.replace("According to the documentation, ", "")
+    answer = answer.replace("The context indicates that ", "")
+
+    return {
+        'thinking': thinking,
+        'answer': answer.strip()
+    }
+
+
 def invoke_bedrock_with_backoff(model_id, body, content_type="application/json", accept="application/json",
                                 max_retries=None):
     """Invoke Bedrock model with exponential backoff and jitter to handle throttling."""
@@ -437,15 +480,11 @@ Remember: You're a knowledgeable consultant having a conversation, not a search 
         if not answer_text:
             raise ValueError(f"Empty text in DeepSeek response: {data}")
 
-        # Clean up the response - remove thinking tags if present
-        answer_text = answer_text.replace("</think>", "").strip()
+        # Parse the response to separate thinking and answer
+        parsed = parse_deepseek_response(answer_text)
 
-        # Post-process: Remove any remaining "based on" phrases if they slip through
-        answer_text = answer_text.replace("Based on the context provided, ", "")
-        answer_text = answer_text.replace("According to the documentation, ", "")
-        answer_text = answer_text.replace("The context indicates that ", "")
+        return parsed  # Returns dict with 'thinking' and 'answer'
 
-        return answer_text.strip()
 
     except Exception as e:
         print(f"Error invoking DeepSeek model: {e}")
@@ -565,14 +604,21 @@ def handler(event, context):
                 'content': msg['content']
             })
 
-        answer = generate_answer_with_deepseek(user_query, query_context, formatted_history)
+        # generate_answer_with_deepseek now returns dict with 'thinking' and 'answer'
+        result = generate_answer_with_deepseek(user_query, query_context, formatted_history)
         timings['llm_ms'] = round((time.time() - t_llm_start) * 1000, 2)
+
+        thinking = result.get('thinking')
+        answer = result.get('answer', '')
+
         print(f"Generated answer: {answer[:200]}...")
+        if thinking:
+            print(f"Thinking length: {len(thinking)} chars")
 
     finally:
         conn.close()
 
-    # Save current exchange to history
+    # Save current exchange to history (only save the answer, not the thinking)
     t_save_start = time.time()
     save_message_to_history(session_id, 'user', user_query)
     save_message_to_history(session_id, 'assistant', answer)
@@ -583,6 +629,7 @@ def handler(event, context):
     response_body = {
         'query': user_query,
         'answer': answer,
+        'thinking': thinking,  # Add thinking as separate field
         'session_id': session_id,
         'model': DEEPSEEK_MODEL_ID,
         'sources': [dict(id=r[0], source=r[2], title=r[3], similarity=r[4]) for r in chunks],
