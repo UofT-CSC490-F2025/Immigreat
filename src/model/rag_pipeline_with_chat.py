@@ -1,8 +1,10 @@
 """
-Enhanced RAG Pipeline with Chat History Support
+Enhanced RAG Pipeline with Chat History Support - DeepSeek-R1 Edition
 
 This module extends the base RAG pipeline with conversational context management.
 Chat history is stored in DynamoDB and included in prompts for contextual responses.
+
+Updated to use DeepSeek-R1 for better reasoning and to avoid throttling issues.
 """
 
 import json
@@ -23,8 +25,14 @@ dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 
 PGVECTOR_SECRET_ARN = os.environ['PGVECTOR_SECRET_ARN']
 EMBEDDING_MODEL = os.environ.get('BEDROCK_EMBEDDING_MODEL', 'amazon.titan-embed-text-v1')
-CLAUDE_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'anthropic.claude-sonnet-4-5-20250929-v1:0')
-ANTHROPIC_VERSION = os.environ.get('ANTHROPIC_VERSION', 'bedrock-2023-05-31')
+
+# ============================================================================
+# UPDATED: Using DeepSeek-R1 instead of Claude
+# ============================================================================
+DEEPSEEK_MODEL_ID = os.environ.get('BEDROCK_CHAT_MODEL', 'us.deepseek.r1-v1:0')
+ANTHROPIC_VERSION = os.environ.get('ANTHROPIC_VERSION', 'bedrock-2023-05-31')  # Keep for compatibility
+# ============================================================================
+
 DYNAMODB_CHAT_TABLE = os.environ.get('DYNAMODB_CHAT_TABLE')
 DEBUG_BEDROCK_LOG = True
 SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD', '0.3'))  # Minimum similarity score
@@ -51,7 +59,8 @@ BEDROCK_MAX_JITTER = float(os.environ.get('BEDROCK_MAX_JITTER', '1.0'))
 chat_table = dynamodb.Table(DYNAMODB_CHAT_TABLE) if DYNAMODB_CHAT_TABLE else None
 
 
-def invoke_bedrock_with_backoff(model_id, body, content_type="application/json", accept="application/json", max_retries=None):
+def invoke_bedrock_with_backoff(model_id, body, content_type="application/json", accept="application/json",
+                                max_retries=None):
     """Invoke Bedrock model with exponential backoff and jitter to handle throttling."""
     if max_retries is None:
         max_retries = MAX_BEDROCK_RETRIES
@@ -100,102 +109,122 @@ def invoke_bedrock_with_backoff(model_id, body, content_type="application/json",
     raise Exception(f"Failed to invoke {model_id} after {max_retries} attempts")
 
 
+def get_secret(secret_arn: str):
+    """Retrieve secret from AWS Secrets Manager."""
+    response = secretsmanager_client.get_secret_value(SecretId=secret_arn)
+    return json.loads(response['SecretString'])
+
+
 def get_db_connection():
-    secret = secretsmanager_client.get_secret_value(SecretId=PGVECTOR_SECRET_ARN)
-    creds = json.loads(secret['SecretString'])
-    return psycopg2.connect(
-        host=creds['host'], port=creds['port'], database=creds['dbname'],
-        user=creds['username'], password=creds['password']
+    """Create a connection to PostgreSQL using credentials from Secrets Manager."""
+    secret = get_secret(PGVECTOR_SECRET_ARN)
+    conn = psycopg2.connect(
+        host=secret['host'],
+        port=secret.get('port', 5432),
+        dbname=secret['dbname'],
+        user=secret['username'],
+        password=secret['password']
     )
+    return conn
 
 
 def get_embedding(text: str):
-    """Generate embedding for text using Bedrock with retry logic."""
-    body = json.dumps({"inputText": text})
-    resp = invoke_bedrock_with_backoff(
+    """Generate embedding using AWS Bedrock Titan embeddings."""
+    body_str = json.dumps({"inputText": text.strip()})
+    response = invoke_bedrock_with_backoff(
         model_id=EMBEDDING_MODEL,
-        body=body
+        body=body_str
     )
-    return json.loads(resp["body"].read())["embedding"]
+    data = json.loads(response['body'].read())
+    return data['embedding']
 
 
-def retrieve_similar_chunks(conn, embedding, k=5, similarity_threshold=None):
-    """Retrieve chunks with optional similarity threshold filtering."""
-    if similarity_threshold is None:
-        similarity_threshold = SIMILARITY_THRESHOLD
-
-    cur = conn.cursor()
-    # Retrieve more chunks initially to account for filtering
-    retrieval_k = k * 3
-    cur.execute("""
-        SELECT id, content, source, title, 1 - (embedding <=> %s::vector) AS similarity
+def retrieve_similar_chunks(conn, query_emb, k=10):
+    """Retrieve similar document chunks using pgvector."""
+    emb_str = "[" + ",".join(map(str, query_emb)) + "]"
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT
+            id,
+            content,
+            source,
+            title,
+            (1 - (embedding <=> %s::vector)) AS similarity
         FROM documents
+        WHERE (1 - (embedding <=> %s::vector)) >= %s
         ORDER BY embedding <=> %s::vector
-        LIMIT %s;
-    """, (embedding, embedding, retrieval_k))
-    rows = cur.fetchall()
-    cur.close()
-
-    # Filter by similarity threshold
-    filtered_rows = [r for r in rows if r[4] >= similarity_threshold]
+        LIMIT %s
+        """,
+        (emb_str, emb_str, SIMILARITY_THRESHOLD, emb_str, k)
+    )
+    results = cursor.fetchall()
+    cursor.close()
 
     if DEBUG_BEDROCK_LOG:
-        print(f"Retrieved {len(rows)} chunks, {len(filtered_rows)} above threshold {similarity_threshold}")
-        if filtered_rows:
-            similarities = [r[4] for r in filtered_rows[:k]]
-            print(f"Top {min(k, len(filtered_rows))} similarity scores: {[round(s, 4) for s in similarities]}")
+        total = len(results)
+        above = len([r for r in results if r[4] >= SIMILARITY_THRESHOLD])
+        print(f"Retrieved {total} chunks, {above} above threshold {SIMILARITY_THRESHOLD}")
+        if results:
+            print(f"Top 3 similarity scores: {[round(r[4], 4) for r in results[:3]]}")
 
-    # Return top k after filtering
-    return filtered_rows[:k]
-
-
-def _top_values(rows, idx, n):
-    """Return up to n most common non-empty values from rows at column idx."""
-    vals = [r[idx] for r in rows if r[idx]]
-    return [v for v, _ in Counter(vals).most_common(n)]
+    return results
 
 
-def expand_via_facets(conn, seed_rows, query_embedding, extra_limit=5):
-    """Facet-Expanded retrieval: treat shared metadata as lightweight graph edges."""
-    if not seed_rows:
+def expand_via_facets(conn, initial_chunks, query_emb, extra_limit=5):
+    """
+    Facet Expansion (FE-RAG): expand retrieval by finding common facets in top results
+    and pulling more chunks with those facet values.
+    """
+    if not FE_RAG_ENABLE or not initial_chunks:
         return []
 
-    col_idx = {"source": 2, "title": 3, "section": None}
-    top_sources = _top_values(seed_rows, col_idx["source"], FE_RAG_MAX_FACET_VALUES) if "source" in FE_RAG_FACETS else []
-    top_titles = _top_values(seed_rows, col_idx["title"], FE_RAG_MAX_FACET_VALUES) if "title" in FE_RAG_FACETS else []
+    facet_map = {}
+    for c in initial_chunks:
+        doc_id, content, source, title = c[0], c[1], c[2], c[3]
+        metadata = {'source': source, 'title': title, 'section': ''}
+        for facet_name in FE_RAG_FACETS:
+            val = metadata.get(facet_name, '')
+            if val:
+                if facet_name not in facet_map:
+                    facet_map[facet_name] = Counter()
+                facet_map[facet_name][val] += 1
 
-    seed_ids = [r[0] for r in seed_rows]
+    common = []
+    for fn, cnt in facet_map.items():
+        for val, freq in cnt.most_common(FE_RAG_MAX_FACET_VALUES):
+            common.append((fn, val))
 
-    sql = """
-        SELECT id, content, source, title, 1 - (embedding <=> %s::vector) AS similarity
-        FROM documents
-        WHERE id <> ALL(%s) AND (
-            source = ANY(%s) OR
-            title = ANY(%s)
-            {section_clause}
-        )
-        ORDER BY embedding <=> %s::vector
-        LIMIT %s;
-    """
+    if not common:
+        return []
 
-    params = [query_embedding, seed_ids, top_sources, top_titles]
+    cursor = conn.cursor()
+    emb_str = "[" + ",".join(map(str, query_emb)) + "]"
+    seen_ids = {r[0] for r in initial_chunks}
 
-    section_clause = ""
-    top_sections = []
-    if "section" in FE_RAG_FACETS:
-        with conn.cursor() as cur:
-            cur.execute("SELECT section FROM documents WHERE id = ANY(%s)", (seed_ids,))
-            sections = [r[0] for r in cur.fetchall() if r[0]]
-            top_sections = [v for v, _ in Counter(sections).most_common(FE_RAG_MAX_FACET_VALUES)]
-        section_clause = " OR section = ANY(%s)"
-        params += [top_sections]
+    extras = []
+    for fn, fv in common:
+        col = fn
+        query_sql = f"""
+            SELECT
+                id,
+                content,
+                source,
+                title,
+                (1 - (embedding <=> %s::vector)) AS similarity
+            FROM documents
+            WHERE {col} = %s
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+        """
+        cursor.execute(query_sql, (emb_str, fv, emb_str, extra_limit))
+        rows = cursor.fetchall()
+        for r in rows:
+            if r[0] not in seen_ids:
+                extras.append(r)
+                seen_ids.add(r[0])
 
-    params += [query_embedding, extra_limit * 2]  # Retrieve more to account for filtering
-    full_sql = sql.format(section_clause=section_clause)
-
-    with conn.cursor() as cur:
-        cur.execute(full_sql, params)
-        extras = cur.fetchall()
+    cursor.close()
 
     # Filter by similarity threshold
     filtered_extras = [r for r in extras if r[4] >= SIMILARITY_THRESHOLD]
@@ -236,7 +265,7 @@ def rerank_chunks(query: str, chunks):
             if i not in seen_idx and len(ranked) < CONTEXT_MAX_CHUNKS:
                 ranked.append(r + (r[4],))
         if DEBUG_BEDROCK_LOG:
-            print(f"Rerank scores: {[round(x[-1],4) for x in ranked]}")
+            print(f"Rerank scores: {[round(x[-1], 4) for x in ranked]}")
         return [r[:-1] for r in ranked[:CONTEXT_MAX_CHUNKS]]
     except Exception as e:
         print(f"Rerank error, falling back to similarity ordering: {e}")
@@ -298,14 +327,14 @@ def save_message_to_history(session_id: str, role: str, message: str):
                 'ttl': ttl
             }
         )
-        print(f"Saved {role} message to session {session_id}")
+        print(f"Saved {role} message to history (session: {session_id})")
 
     except Exception as e:
         print(f"Error saving message to history: {e}")
 
 
-def format_chat_history_for_prompt(history):
-    """Format chat history for inclusion in the prompt."""
+def format_chat_history(history: list) -> str:
+    """Format chat history into a readable string."""
     if not history:
         return ""
 
@@ -319,70 +348,116 @@ def format_chat_history_for_prompt(history):
     return formatted
 
 
-def generate_answer_with_history(prompt: str, history: list) -> str:
-    """Send a chat prompt to Claude with conversation history.
+# ============================================================================
+# UPDATED: DeepSeek-R1 Answer Generation with Improved Prompting
+# ============================================================================
+def generate_answer_with_deepseek(user_query: str, context: str, history: list) -> str:
+    """Generate answer using DeepSeek-R1 with AWS Bedrock format.
+
+    DeepSeek on Bedrock uses special tokens: <｜begin▁of▁sentence｜><｜User｜>...<｜Assistant｜>
 
     Args:
-        prompt: The current user question with context
+        user_query: The current user question
+        context: Retrieved documentation context (may be empty or irrelevant)
         history: List of previous messages [{'role': 'user'/'assistant', 'content': '...'}]
     """
-    # Build messages array with history
-    messages = []
 
-    # Add historical messages (alternating user/assistant)
-    for msg in history:
-        messages.append({
-            "role": msg['role'],
-            "content": [{"type": "text", "text": msg['content']}]
-        })
+    # Build the prompt parts
+    prompt_parts = []
 
-    # Add current prompt as latest user message
-    messages.append({
-        "role": "user",
-        "content": [{"type": "text", "text": prompt}]
-    })
+    # System instructions
+    system_instructions = """You are an expert Canadian immigration consultant with comprehensive knowledge of IRCC policies, procedures, and requirements.
 
+Your approach:
+- Answer immigration questions directly and confidently
+- Use your expertise to provide accurate, practical guidance
+- When relevant documentation is available, naturally incorporate that information
+- If you're less certain about specifics, provide your best professional assessment and suggest verification with IRCC
+- Never say phrases like "based on the context provided" or "according to the documentation" - just answer naturally
+- Be conversational and helpful, not robotic
+- Provide step-by-step guidance for procedures
+- Include important requirements, deadlines, and considerations
+
+Remember: You're a knowledgeable consultant having a conversation, not a search engine reading documents aloud.
+
+"""
+
+    prompt_parts.append(system_instructions)
+
+    # Add conversation history if available
+    if history:
+        prompt_parts.append("Previous conversation:\n")
+        for msg in history[-MAX_HISTORY_MESSAGES:]:
+            role = "User" if msg['role'] == 'user' else "Assistant"
+            prompt_parts.append(f"{role}: {msg['content']}\n")
+        prompt_parts.append("\n")
+
+    # Add context if available
+    if context and context.strip():
+        prompt_parts.append("Reference information:\n")
+        prompt_parts.append(context)
+        prompt_parts.append("\n\n")
+
+    # Add current question
+    prompt_parts.append(f"Question: {user_query}")
+
+    # Combine into full prompt
+    full_prompt = "".join(prompt_parts)
+
+    # Format with DeepSeek's special tokens
+    # Note: Using special unicode characters as shown in AWS docs
+    formatted_prompt = f"""<｜begin▁of▁sentence｜><｜User｜>{full_prompt}<｜Assistant｜><think>
+"""
+
+    # DeepSeek-R1 payload format for Bedrock
     payload = {
-        "anthropic_version": ANTHROPIC_VERSION,
-        "max_tokens": 2048,
-        "messages": messages,
-        "system": """You are an expert Canadian immigration assistant with deep knowledge of immigration policies, procedures, and requirements.
-
-When answering questions:
-1. CAREFULLY read and analyze the provided context from the knowledge base
-2. Base your answer primarily on the information given in the context
-3. If the context contains relevant information, use it to provide a detailed, accurate answer
-4. If the context is partially relevant, use what's available and clearly indicate what aspects you can address
-5. Only say you don't have enough context if the provided information is truly insufficient or off-topic
-6. When appropriate, reference previous conversation naturally
-7. Be specific and cite relevant details from the context when possible
-
-Remember: The context provided has been carefully selected as relevant to the question. Look for connections and use the information available."""
+        "prompt": formatted_prompt,
+        "max_tokens": 8192,  # AWS docs show max_tokens, not max_tokens_to_sample
+        "temperature": 0.3,
+        "top_p": 0.9
     }
 
     try:
         response = invoke_bedrock_with_backoff(
-            model_id=CLAUDE_MODEL_ID,
+            model_id=DEEPSEEK_MODEL_ID,
             body=json.dumps(payload)
         )
         data = json.loads(response["body"].read())
+
         if DEBUG_BEDROCK_LOG:
-            print(f"Claude raw response: {json.dumps(data)[:2000]}")
+            print(f"DeepSeek raw response: {json.dumps(data)[:2000]}")
 
-        content_blocks = data.get("content", [])
-        for block in content_blocks:
-            if block.get("type") == "text":
-                return block.get("text", "")
+        # DeepSeek response format: {"choices": [{"text": "..."}]}
+        choices = data.get("choices", [])
+        if not choices or len(choices) == 0:
+            raise ValueError(f"No choices in DeepSeek response: {data}")
 
-        raise ValueError(f"Unexpected Claude response format: {data}")
+        answer_text = choices[0].get("text", "")
+
+        if not answer_text:
+            raise ValueError(f"Empty text in DeepSeek response: {data}")
+
+        # Clean up the response - remove thinking tags if present
+        answer_text = answer_text.replace("</think>", "").strip()
+
+        # Post-process: Remove any remaining "based on" phrases if they slip through
+        answer_text = answer_text.replace("Based on the context provided, ", "")
+        answer_text = answer_text.replace("According to the documentation, ", "")
+        answer_text = answer_text.replace("The context indicates that ", "")
+
+        return answer_text.strip()
+
     except Exception as e:
-        print(f"Error invoking Claude model: {e}")
+        print(f"Error invoking DeepSeek model: {e}")
         raise
+
+
+# ============================================================================
 
 
 def handler(event, context):
     """
-    Enhanced RAG handler with chat history support.
+    Enhanced RAG handler with chat history support using DeepSeek-R1.
 
     Expected input:
     {
@@ -392,7 +467,7 @@ def handler(event, context):
 
     If session_id is not provided, a new one is generated (stateless mode).
     """
-    print('Starting RAG pipeline with chat support')
+    print('Starting RAG pipeline with DeepSeek-R1 and chat support')
 
     # Extract query and session_id
     user_query = None
@@ -417,7 +492,8 @@ def handler(event, context):
                     use_rerank = parsed.get('use_rerank', RERANK_ENABLE)
                 except Exception as e:
                     print(f"Failed to parse JSON body: {e}")
-    print(f"Received Query: {user_query[:100] if isinstance(user_query, str) else 'None'}, Session ID: {session_id}, k={k}, use_facets={use_facets}, use_rerank={use_rerank}")
+    print(
+        f"Received Query: {user_query[:100] if isinstance(user_query, str) else 'None'}, Session ID: {session_id}, k={k}, use_facets={use_facets}, use_rerank={use_rerank}")
 
     if not user_query or not isinstance(user_query, str) or not user_query.strip():
         return {
@@ -473,19 +549,15 @@ def handler(event, context):
             timings['rerank_ms'] = round((time.time() - t_rerank_start) * 1000, 2)
             print(f"Final chunk count after rerank: {len(chunks)}")
 
-        # Build prompt with context
-        query_context = "\n\n".join([r[1] for r in chunks])
+        # Build context from retrieved chunks
+        query_context = "\n\n".join([r[1] for r in chunks]) if chunks else ""
 
-        # Format: Context + Current Question
-        prompt = f"Context from knowledge base:\n{query_context}\n\nCurrent Question: {user_query}\n\nAnswer based on the context provided:"
+        print(f"Context: {len(query_context)} chars, {len(chunks)} chunks, History: {len(chat_history)} msgs")
 
-        print(f"Prompt length: {len(prompt)} characters, History items: {len(chat_history)}")
-
-        # Generate answer with history
+        # Generate answer with DeepSeek-R1
         t_llm_start = time.time()
 
-        # Prepare history for Claude (only user/assistant messages, not the RAG context)
-        # We'll use a simpler approach: just pass the question-answer pairs
+        # Prepare history for DeepSeek (only user/assistant messages)
         formatted_history = []
         for msg in chat_history[-MAX_HISTORY_MESSAGES:]:
             formatted_history.append({
@@ -493,7 +565,7 @@ def handler(event, context):
                 'content': msg['content']
             })
 
-        answer = generate_answer_with_history(prompt, formatted_history)
+        answer = generate_answer_with_deepseek(user_query, query_context, formatted_history)
         timings['llm_ms'] = round((time.time() - t_llm_start) * 1000, 2)
         print(f"Generated answer: {answer[:200]}...")
 
@@ -512,6 +584,7 @@ def handler(event, context):
         'query': user_query,
         'answer': answer,
         'session_id': session_id,
+        'model': DEEPSEEK_MODEL_ID,
         'sources': [dict(id=r[0], source=r[2], title=r[3], similarity=r[4]) for r in chunks],
         'timings': timings,
         'history_length': len(chat_history)
