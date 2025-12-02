@@ -370,13 +370,12 @@ def initialize_database(cursor):
         # Enable pgvector extension
         cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
 
-        # Drop existing table if schema is wrong
-        cursor.execute("DROP TABLE IF EXISTS documents;")
-
         # Create documents table with VARCHAR id (not UUID)
+        # Using CREATE TABLE IF NOT EXISTS - preserves existing data
         cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS documents (
                 id VARCHAR PRIMARY KEY,
+                document_id VARCHAR,
                 title VARCHAR,
                 section VARCHAR,
                 content TEXT,
@@ -386,6 +385,19 @@ def initialize_database(cursor):
                 granularity VARCHAR,
                 embedding VECTOR({EMBEDDING_DIMENSIONS})
             );
+        """)
+
+        # Add document_id column if it doesn't exist (for existing tables)
+        cursor.execute("""
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name='documents' AND column_name='document_id'
+                ) THEN
+                    ALTER TABLE documents ADD COLUMN document_id VARCHAR;
+                END IF;
+            END $$;
         """)
 
         # Create IVFFlat index for vector similarity search
@@ -419,11 +431,12 @@ def insert_chunks(cursor, chunks: List[Dict[str, Any]]):
     try:
         insert_query = f"""
             INSERT INTO documents (
-                id, title, section, content, source, 
+                id, document_id, title, section, content, source, 
                 date_published, date_scraped, granularity, embedding
             ) VALUES %s
             ON CONFLICT (id) 
             DO UPDATE SET
+                document_id = EXCLUDED.document_id,
                 title = EXCLUDED.title,
                 section = EXCLUDED.section,
                 content = EXCLUDED.content,
@@ -447,6 +460,7 @@ def insert_chunks(cursor, chunks: List[Dict[str, Any]]):
 
                 values.append((
                     chunk.get('id'),
+                    chunk.get('document_id'),  # Add document_id
                     chunk.get('title'),
                     chunk.get('section'),
                     chunk.get('content'),
@@ -608,8 +622,18 @@ def handler(event, context):
         if chunks_with_embeddings:
             insert_chunks(cursor, chunks_with_embeddings)
 
-        # Commit and close
+        # Commit changes
         connection.commit()
+
+        # Get total database statistics
+        cursor.execute("SELECT COUNT(*) FROM documents")
+        total_db_chunks = cursor.fetchone()[0]
+
+        # Count unique documents
+        cursor.execute("SELECT COUNT(DISTINCT document_id) FROM documents WHERE document_id IS NOT NULL")
+        total_db_documents = cursor.fetchone()[0]
+
+        # Close connection
         cursor.close()
         connection.close()
 
@@ -623,10 +647,33 @@ def handler(event, context):
         print(f"Already in database: {len(existing_ids)}")
         print(f"Newly processed: {len(chunks_with_embeddings)}")
         print(f"Total in database: {total_in_db}/{len(all_chunks)}")
+        print(f"")
+        print(f"📊 DATABASE TOTALS (ALL FILES):")
+        print(f"   Total chunks in DB: {total_db_chunks}")
+        print(f"   Unique documents in DB: {total_db_documents}")
+        print(f"")
+
+        # ========== AUTO-RETRY LOGIC ==========
         if total_in_db < len(all_chunks):
             remaining = len(all_chunks) - total_in_db
             print(f"⚠️  Partial processing: {remaining} chunks remaining")
-            print(f"💡 File will be reprocessed automatically on next S3 trigger")
+            print(f"🔄 Auto-retry: Will invoke Lambda again in 30 seconds...")
+
+            # Wait before retry to avoid tight loop
+            time.sleep(30)
+
+            try:
+                # Re-invoke this Lambda with the same event
+                lambda_client = boto3.client('lambda')
+                response = lambda_client.invoke(
+                    FunctionName=context.function_name,
+                    InvocationType='Event',  # Async invocation
+                    Payload=json.dumps(event)
+                )
+                print(f"✅ Auto-retry invocation triggered successfully")
+            except Exception as e:
+                print(f"⚠️ Auto-retry failed: {str(e)}")
+                print(f"💡 File will be reprocessed on next S3 trigger")
         else:
             print(f"✅ All chunks processed successfully!")
         print("=" * 80)
