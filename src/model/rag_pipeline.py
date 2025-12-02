@@ -1,3 +1,4 @@
+# Early prototype to test the basic functionality of the model, not used in AWS
 import json
 import os
 import time
