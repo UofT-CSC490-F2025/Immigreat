@@ -40,25 +40,25 @@ BEDROCK_MAX_JITTER = float(os.environ.get('BEDROCK_MAX_JITTER', '1.0'))  # secon
 def invoke_bedrock_with_backoff(model_id, body, content_type="application/json", accept="application/json", max_retries=None):
     """
     Invoke Bedrock model with exponential backoff and jitter to handle throttling.
-    
+
     Args:
         model_id: The Bedrock model ID to invoke
         body: JSON string of the request body
         content_type: Content type header
         accept: Accept header
         max_retries: Maximum number of retry attempts (defaults to MAX_BEDROCK_RETRIES)
-    
+
     Returns:
         Bedrock response object
-        
+
     Raises:
         Exception if max retries exceeded or non-throttling error occurs
     """
     if max_retries is None:
         max_retries = MAX_BEDROCK_RETRIES
-    
+
     last_exception = None
-    
+
     for attempt in range(max_retries):
         try:
             response = bedrock_runtime.invoke_model(
@@ -71,37 +71,37 @@ def invoke_bedrock_with_backoff(model_id, body, content_type="application/json",
             if attempt > 0:
                 print(f"Successfully invoked {model_id} after {attempt + 1} attempts")
             return response
-            
+
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', '')
             last_exception = e
-            
+
             # Check if it's a throttling error
             if error_code == 'ThrottlingException':
                 if attempt == max_retries - 1:
                     # Last attempt - don't sleep, just raise
                     print(f"Max retries ({max_retries}) exceeded for {model_id}")
                     raise
-                
+
                 # Calculate exponential backoff with jitter
                 exponential_delay = (2 ** attempt) * BEDROCK_BASE_DELAY
                 jitter = random.uniform(0, BEDROCK_MAX_JITTER)
                 total_delay = exponential_delay + jitter
-                
+
                 print(f"ThrottlingException on attempt {attempt + 1}/{max_retries} for {model_id}, "
                       f"retrying in {total_delay:.2f}s (base: {exponential_delay:.2f}s + jitter: {jitter:.2f}s)")
-                
+
                 time.sleep(total_delay)
             else:
                 # Non-throttling error - raise immediately
                 print(f"Non-throttling error from {model_id}: {error_code} - {str(e)}")
                 raise
-                
+
         except Exception as e:
             # Unexpected error - raise immediately
             print(f"Unexpected error invoking {model_id}: {str(e)}")
             raise
-    
+
     # Should not reach here, but just in case
     if last_exception:
         raise last_exception
@@ -341,11 +341,6 @@ def handler(event, context):
     if not user_query or not isinstance(user_query, str) or not user_query.strip():
         return {
             'statusCode': 400,
-            'headers': {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': 'Content-Type',
-                'Access-Control-Allow-Methods': 'POST,OPTIONS'
-            },
             'body': json.dumps({'error': "Missing or invalid 'query'"})
         }
     user_query = user_query.strip()
@@ -407,10 +402,5 @@ def handler(event, context):
 
     return {
         'statusCode': 200,
-        'headers': {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type',
-            'Access-Control-Allow-Methods': 'POST,OPTIONS'
-        },
         'body': json.dumps(response_body)
     }
