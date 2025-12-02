@@ -573,11 +573,12 @@ function App() {
                               <a {...props} className="text-blue-600 dark:text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer" />
                             ),
                             // Style code blocks
-                            code: ({node, inline, ...props}) => (
-                              inline
-                                ? <code {...props} className="bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded text-sm" />
-                                : <code {...props} className="block bg-gray-100 dark:bg-gray-700 p-2 rounded text-sm overflow-x-auto" />
-                            ),
+                            code: ({node, className, children, ...props}) => {
+                              const isInline = !className?.includes('language-')
+                              return isInline
+                                ? <code {...props} className="bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded text-sm">{children}</code>
+                                : <code {...props} className="block bg-gray-100 dark:bg-gray-700 p-2 rounded text-sm overflow-x-auto">{children}</code>
+                            },
                             // Style lists
                             ul: ({node, ...props}) => <ul {...props} className="list-disc list-inside space-y-1" />,
                             ol: ({node, ...props}) => <ol {...props} className="list-decimal list-inside space-y-1" />,
