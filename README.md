@@ -321,6 +321,12 @@ Reinforcement Learning with Verifiable Rewards system for training a judge model
 - **Total baseline**: $0.00875/query
 
 ---
+## Data
+
+### IRCC, IRPR, IRPA, Refugee Law Lab
+
+We scraped data from IRCC webpages, the IRPA, the IRPR, and Refugee law lab datasets. 
+Links that we accessed can be found under src/scraping/constants.py
 
 ## 🤝 Contributing
 
@@ -371,6 +377,7 @@ University of Toronto
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
 
 </div>
+
 
 
 
