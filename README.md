@@ -36,6 +36,12 @@
 
 ---
 
+## 🎥 Demo Video
+
+[![Immigreat Demo](https://img.youtube.com/vi/-EdVA1pzEL4/maxresdefault.jpg)](https://www.youtube.com/watch?v=-EdVA1pzEL4)
+
+---
+
 ## ✨ Features
 
 ### Core Capabilities
@@ -377,6 +383,7 @@ University of Toronto
 - **GitHub Issues**: [Report bugs or request features](https://github.com/UofT-CSC490-F2025/Immigreat/issues)
 
 </div>
+
 
 
 
